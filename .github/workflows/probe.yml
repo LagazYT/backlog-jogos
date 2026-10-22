@@ -1,0 +1,23 @@
+name: Probe
+on:
+  push:
+    branches: [ probe ]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          mkdir -p probe
+          UA="BacklogApp/1.0 (Android)"
+          CK="birthtime=470682001; lastagecheckage=1-0-1985; wants_mature_content=1"
+          curl -sSL -A "$UA" -H "Cookie: $CK" -D probe/community_headers.txt -o probe/community.html "https://steamcommunity.com/stats/292030/achievements/?l=brazilian" || true
+          curl -sSL -A "$UA" -o probe/community_noslash.html "https://steamcommunity.com/stats/292030/achievements?l=english" || true
+          curl -sS -o probe/gameach.json "https://api.steampowered.com/IPlayerService/GetGameAchievements/v1/?appid=292030&language=brazilian" || true
+          curl -sS -o probe/globalpct.json "https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=292030" || true
+          curl -sS -o probe/schema.json "https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?appid=292030&l=brazilian" || true
+          ls -la probe
+          git config user.name probe; git config user.email probe@example.com
+          git add probe && git commit -m probe && git push
