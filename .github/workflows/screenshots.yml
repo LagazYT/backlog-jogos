@@ -1,0 +1,31 @@
+name: Prints do README
+
+on:
+  push:
+    branches: [ screenshots ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  shots:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Instalar Playwright
+        run: |
+          pip install playwright pillow
+          python -m playwright install --with-deps chromium
+      - name: Tirar os prints
+        run: python tools/screenshots.py
+      - name: Salvar no repositório
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs
+          git commit -m "Prints atualizados" || echo "nada mudou"
+          git push

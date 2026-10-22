@@ -58,7 +58,7 @@ let settings = { ...DEFAULTS, ...store.load(SETTINGS_KEY, {}) };
 const saveSettings = () => store.save(SETTINGS_KEY, settings);
 
 let games = store.load("backlog.games.v1", []);
-const saveGames = () => store.save("backlog.games.v1", games);
+const saveGames = () => { store.save("backlog.games.v1", games); scheduleSync(); };
 let coverCache = store.load("backlog.coverCache.v2", {});     // chave -> file:// salvo
 let wikiThumbs = store.load("backlog.wikiThumbs.v1", {});     // título da Wikipédia -> URL
 let tracked = store.load("backlog.achTracked.v1", []);        // jogos com conquistas acompanhadas
@@ -326,7 +326,7 @@ function renderLibrary() {
   STATUSES.forEach(s => counts[s.id] = games.filter(g => g.status === s.id).length);
   const hours = games.reduce((a, g) => a + (Number(g.hours) || 0), 0);
 
-  $("#lib-count").textContent = games.length ? `${fmtH(hours)} h registradas` : "";
+  renderAvatarButton();
   $("#lib-empty").hidden = games.length > 0;
   $("#lib-filters").hidden = games.length === 0;
 
@@ -335,7 +335,7 @@ function renderLibrary() {
       <div class="dist">${STATUSES.filter(s => counts[s.id]).map(s =>
         `<span style="flex:${counts[s.id]};background:${s.color}"></span>`).join("")}</div>
       <div class="dist-legend">${STATUSES.map(s =>
-        `<span><i style="background:${s.color}"></i><b>${counts[s.id]}</b> ${s.label.toLowerCase()}</span>`).join("")}</div>
+        `<span><i style="background:${s.color}"></i><b>${counts[s.id]}</b> ${s.label.toLowerCase()}</span>`).join("")}<span><b>${fmtH(hours)} h</b> registradas</span></div>
     </div>` : "";
 
   // Trilho "Jogando agora"
@@ -716,6 +716,7 @@ function openGame(game, result, back) {
     let armed = false;
     del.addEventListener("click", () => {
       if (!armed) { armed = true; del.textContent = "Toque de novo para remover"; setTimeout(() => { armed = false; del.textContent = "Remover"; }, 3000); return; }
+      markDeleted(game.id);
       games = games.filter(g => g.id !== game.id);
       saveGames();
       if (Native && game.cover && game.cover.startsWith("file:")) Native.deleteFile(game.cover);
@@ -806,7 +807,11 @@ function openPopular(p) {
    Conquistas (lista pública da Steam Community)
    ========================================================= */
 const achDone = appid => new Set(store.load("backlog.achDone." + appid, []));
-const saveAchDone = (appid, set) => store.save("backlog.achDone." + appid, [...set]);
+const saveAchDone = (appid, set) => {
+  store.save("backlog.achDone." + appid, [...set]);
+  store.save("backlog.achAt." + appid, Date.now());
+  scheduleSync();
+};
 const achMem = {};
 
 async function fetchAchievements(appid) {
@@ -844,6 +849,7 @@ function updateTracked(appid, title, total, done) {
   tracked.unshift({ appid, title, total, done, at: Date.now() });
   tracked = tracked.slice(0, 30);
   store.save("backlog.achTracked.v1", tracked);
+  scheduleSync();
 }
 
 async function openAchievementsFor(title, steamId, back) {
@@ -984,6 +990,7 @@ $("#ach-results").addEventListener("click", e => {
 function renderSettings() {
   const segBtns = (key, opts) => opts.map(([v, l]) => `<button class="${settings[key] === v ? "is-on" : ""}" data-set="${key}" data-val="${v}">${l}</button>`).join("");
   $("#settings").innerHTML = `
+    <div class="group">${profileCardHTML()}</div>
     <div class="group">
       <h2 class="group-title">Aparência</h2>
       <div class="card-list">
@@ -1047,7 +1054,7 @@ function renderSettings() {
           <span class="row-chev">${ICON.chev}</span></button></div>
       </div>
     </div>
-    <p class="about">Backlog 1.1.1. Capas da Wikipédia e da Steam. Conquistas e jogadores agora vêm da Steam.</p>`;
+    <p class="about">Backlog 1.2. Capas da Wikipédia e da Steam. Conquistas e jogadores agora vêm da Steam.</p>`;
 }
 $("#settings").addEventListener("click", e => {
   const b = e.target.closest("[data-set]");
@@ -1060,6 +1067,7 @@ $("#settings").addEventListener("click", e => {
     renderSettings();
     return;
   }
+  if (e.target.closest("#profile-card")) { openProfile(); return; }
   const id = e.target.closest("button")?.id;
   if (id === "s-export") exportBackup();
   if (id === "s-import") openImport();
@@ -1077,6 +1085,7 @@ $("#settings").addEventListener("click", e => {
       return;
     }
     games.forEach(g => { if (Native && g.cover && g.cover.startsWith("file:")) Native.deleteFile(g.cover); });
+    games.forEach(g => markDeleted(g.id));
     games = []; saveGames(); renderLibrary(); renderSettings();
     toast("Biblioteca apagada");
   }
@@ -1131,6 +1140,371 @@ function openImport() {
   });
 }
 
+/* =========================================================
+   Perfil e conta na nuvem (Firebase Auth + Realtime Database,
+   usados pela API REST; o login com Google é nativo)
+   ========================================================= */
+const FB = window.FIREBASE || {};
+const cloudReady = !!(FB.apiKey && FB.databaseURL);
+const googleReady = cloudReady && !!FB.webClientId && !!(Native && Native.googleSignIn);
+let auth = store.load("backlog.auth.v1", null);
+let profile = { name: "", bio: "", color: "#FFD21F", usePhoto: true, favPlatform: "", favGame: "", at: 0, ...store.load("backlog.profile.v1", {}) };
+let deleted = store.load("backlog.deleted.v1", {});
+const sync = { busy: false, again: false, last: store.load("backlog.lastSync.v1", 0), error: "" };
+const toArr = v => Array.isArray(v) ? v.filter(Boolean) : (v && typeof v === "object" ? Object.values(v) : []);
+
+function saveProfile() {
+  profile.at = Date.now();
+  store.save("backlog.profile.v1", profile);
+  scheduleSync();
+  renderAvatarButton();
+}
+function markDeleted(id) {
+  deleted[id] = Date.now();
+  store.save("backlog.deleted.v1", deleted);
+}
+function relTime(ts) {
+  if (!ts) return "nunca";
+  const m = Math.round((Date.now() - ts) / 60000);
+  if (m < 1) return "agora mesmo";
+  if (m < 60) return `há ${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `há ${h} h`;
+  return new Date(ts).toLocaleDateString("pt-BR");
+}
+
+async function request(method, url, body, ct = "application/json") {
+  const payload = body == null ? "" : (typeof body === "string" ? body : JSON.stringify(body));
+  let text;
+  if (Native && Native.httpRequest) text = await callNative("httpRequest", method, url, payload, ct);
+  else {
+    const r = await fetch(url, { method, headers: payload ? { "Content-Type": ct } : {}, body: payload || undefined });
+    text = await r.text();
+    if (!r.ok) throw new Error("HTTP " + r.status + " " + text);
+  }
+  return text ? JSON.parse(text) : null;
+}
+
+const AUTH_ERRORS = {
+  EMAIL_EXISTS: "Já existe uma conta com esse e-mail. Toque em Entrar.",
+  INVALID_LOGIN_CREDENTIALS: "E-mail ou senha incorretos.",
+  INVALID_PASSWORD: "E-mail ou senha incorretos.",
+  EMAIL_NOT_FOUND: "E-mail ou senha incorretos.",
+  INVALID_EMAIL: "Esse e-mail não é válido.",
+  WEAK_PASSWORD: "A senha precisa ter pelo menos 6 caracteres.",
+  MISSING_PASSWORD: "Digite a senha.",
+  TOO_MANY_ATTEMPTS_TRY_LATER: "Muitas tentativas seguidas. Espere alguns minutos.",
+  OPERATION_NOT_ALLOWED: "Esse tipo de login não está ativado no Firebase.",
+  CONFIGURATION_NOT_FOUND: "O login não está ativado no Firebase."
+};
+function authError(e) {
+  const m = String(e && e.message || e);
+  if (m.includes("cancelado")) return "";
+  const k = Object.keys(AUTH_ERRORS).find(code => m.includes(code));
+  if (k) return AUTH_ERRORS[k];
+  if (/HTTP|Unable to resolve|timeout|failed to connect/i.test(m) && !/googleSignIn|credential/i.test(m)) return "Sem conexão com a internet. Tente de novo.";
+  return "Não foi possível entrar com o Google. Tente entrar com e-mail.";
+}
+function setAuth(r, provider) {
+  auth = {
+    uid: r.localId || r.user_id,
+    idToken: r.idToken || r.id_token,
+    refreshToken: r.refreshToken || r.refresh_token,
+    exp: Date.now() + (parseInt(r.expiresIn || r.expires_in, 10) || 3600) * 1000,
+    email: r.email || "",
+    name: r.displayName || r.fullName || "",
+    photo: r.photoUrl || "",
+    provider
+  };
+  store.save("backlog.auth.v1", auth);
+  if (!profile.name && auth.name) { profile.name = auth.name; profile.at = 0; store.save("backlog.profile.v1", profile); }
+}
+async function signInGoogle() {
+  const token = await callNative("googleSignIn", FB.webClientId);
+  const r = await request("POST", `https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=${FB.apiKey}`, {
+    postBody: `id_token=${token}&providerId=google.com`, requestUri: "http://localhost",
+    returnIdpCredential: true, returnSecureToken: true
+  });
+  setAuth(r, "google");
+}
+async function signInEmail(mode, email, password) {
+  const ep = mode === "up" ? "signUp" : "signInWithPassword";
+  const r = await request("POST", `https://identitytoolkit.googleapis.com/v1/accounts:${ep}?key=${FB.apiKey}`,
+    { email, password, returnSecureToken: true });
+  setAuth({ ...r, email }, "email");
+}
+async function idToken() {
+  if (Date.now() < auth.exp - 60000) return auth.idToken;
+  const r = await request("POST", `https://securetoken.googleapis.com/v1/token?key=${FB.apiKey}`,
+    `grant_type=refresh_token&refresh_token=${encodeURIComponent(auth.refreshToken)}`, "application/x-www-form-urlencoded");
+  Object.assign(auth, { idToken: r.id_token, refreshToken: r.refresh_token, exp: Date.now() + parseInt(r.expires_in, 10) * 1000 });
+  store.save("backlog.auth.v1", auth);
+  return auth.idToken;
+}
+const userURL = async () => `${FB.databaseURL.replace(/\/+$/, "")}/users/${auth.uid}.json?auth=${await idToken()}`;
+
+function collectData() {
+  const achievements = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k.startsWith("backlog.achDone.")) {
+        const appid = k.slice(16);
+        achievements[appid] = { ids: store.load(k, []), at: store.load("backlog.achAt." + appid, 0) };
+      }
+    }
+  } catch (_) {}
+  return { v: 1, updatedAt: Date.now(), games: games.map(g => ({ ...g, cover: "" })), achievements, tracked, profile, deleted };
+}
+function mergeData(r) {
+  if (!r) return;
+  Object.entries(r.deleted || {}).forEach(([id, t]) => { if (!deleted[id] || deleted[id] < t) deleted[id] = t; });
+  const byId = new Map(games.map(g => [g.id, g]));
+  toArr(r.games).forEach(rg => {
+    if (!rg.id) return;
+    const lg = byId.get(rg.id);
+    if (!lg) byId.set(rg.id, { ...rg, cover: "", coverAlts: toArr(rg.coverAlts) });
+    else if ((rg.updatedAt || 0) > (lg.updatedAt || 0)) byId.set(rg.id, { ...rg, cover: lg.cover, coverAlts: toArr(rg.coverAlts) });
+  });
+  games = [...byId.values()].filter(g => !(deleted[g.id] && deleted[g.id] >= (g.updatedAt || 0)));
+  Object.entries(r.achievements || {}).forEach(([appid, v]) => {
+    if ((v.at || 0) > store.load("backlog.achAt." + appid, 0)) {
+      store.save("backlog.achDone." + appid, toArr(v.ids));
+      store.save("backlog.achAt." + appid, v.at);
+    }
+  });
+  const tmap = new Map(tracked.map(t => [String(t.appid), t]));
+  toArr(r.tracked).forEach(t => { const l = tmap.get(String(t.appid)); if (!l || (t.at || 0) > (l.at || 0)) tmap.set(String(t.appid), t); });
+  tracked = [...tmap.values()].sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 30);
+  if (r.profile && (r.profile.at || 0) > (profile.at || 0)) profile = { ...profile, ...r.profile };
+  store.save("backlog.games.v1", games);
+  store.save("backlog.deleted.v1", deleted);
+  store.save("backlog.achTracked.v1", tracked);
+  store.save("backlog.profile.v1", profile);
+}
+function ensureCovers() {
+  games.filter(g => !g.cover && (g.coverRemote || toArr(g.coverAlts).length)).forEach(g =>
+    downloadCover(gameCovers(g), "cover_" + g.id).then(l => { if (l) { g.cover = l; store.save("backlog.games.v1", games); } }));
+}
+
+async function fullSync() {
+  if (!cloudReady || !auth) return;
+  if (sync.busy) { sync.again = true; return; }
+  sync.busy = true;
+  renderSyncStatus();
+  try {
+    const remote = await request("GET", await userURL());
+    mergeData(remote);
+    await request("PUT", await userURL(), collectData());
+    sync.last = Date.now();
+    sync.error = "";
+    store.save("backlog.lastSync.v1", sync.last);
+    renderLibrary();
+    ensureCovers();
+  } catch (e) {
+    const m = String(e.message);
+    sync.error = /HTTP 40[13]|Permission denied|TOKEN_EXPIRED|INVALID_REFRESH_TOKEN|USER_NOT_FOUND/i.test(m)
+      ? "A nuvem recusou o acesso. Saia e entre de novo na conta."
+      : "Não deu para sincronizar agora. Tento de novo quando houver internet.";
+  } finally {
+    sync.busy = false;
+    renderSyncStatus();
+    if (sync.again) { sync.again = false; scheduleSync(); }
+  }
+}
+let syncTimer;
+function scheduleSync() {
+  if (!cloudReady || !auth) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(fullSync, 2500);
+}
+function startCloud() { if (cloudReady && auth) fullSync(); }
+
+/* --- Avatar --- */
+function avatarHTML(size) {
+  const photo = profile.usePhoto && auth && auth.photo;
+  if (photo) return `<span class="avatar" style="width:${size}px;height:${size}px"><img src="${esc(auth.photo)}" alt=""></span>`;
+  const initials = (profile.name || "").trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+  const c = profile.color || "#FFD21F";
+  const rgb = parseInt(c.slice(1), 16);
+  const lum = (0.299 * (rgb >> 16) + 0.587 * ((rgb >> 8) & 255) + 0.114 * (rgb & 255)) / 255;
+  return `<span class="avatar" style="width:${size}px;height:${size}px;background:${c};color:${lum > .6 ? "#111" : "#fff"};font-size:${Math.round(size * .4)}px">${
+    initials ? esc(initials) : `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.4-3.6 4.2-5.4 7.5-5.4s6.1 1.8 7.5 5.4"/></svg>`}</span>`;
+}
+function renderAvatarButton() {
+  const el = $("#lib-count");
+  if (!el) return;
+  el.innerHTML = `<button class="avatar-btn" id="avatar-btn" aria-label="Seu perfil">${avatarHTML(40)}${auth ? `<i class="sync-dot ${sync.error ? "is-err" : ""}"></i>` : ""}</button>`;
+  el.querySelector("button").onclick = () => openProfile();
+}
+function syncLine() {
+  if (!cloudReady) return "Seu perfil fica salvo neste celular.";
+  if (!auth) return "Entre para salvar seus dados na nuvem.";
+  if (sync.busy) return `${esc(auth.email)}, sincronizando…`;
+  if (sync.error) return `${esc(auth.email)}. ${esc(sync.error)}`;
+  return `${esc(auth.email)}, salvo na nuvem ${relTime(sync.last)}`;
+}
+function profileCardHTML() {
+  return `<button class="profile-card" id="profile-card">
+    ${avatarHTML(56)}
+    <div style="min-width:0">
+      <div class="profile-name">${esc(profile.name || "Criar seu perfil")}</div>
+      <div class="setting-desc">${syncLine()}</div>
+    </div>
+    <span class="row-chev">${ICON.chev}</span></button>`;
+}
+function renderSyncStatus() {
+  renderAvatarButton();
+  const card = $("#profile-card");
+  if (card) card.outerHTML = profileCardHTML();
+  const line = body.querySelector("#acct-status");
+  if (line) line.innerHTML = syncLine();
+}
+
+/* --- Tela do perfil --- */
+const AVATAR_COLORS = ["#FFD21F", "#F03A2E", "#3EE6D6", "#93ABFF", "#FF4FA3", "#43CF86", "#F6F4EE", "#2A2A2E"];
+function profileStats() {
+  const done = games.filter(g => g.status === "done").length;
+  const hours = games.reduce((a, g) => a + (Number(g.hours) || 0), 0);
+  const rated = games.filter(g => g.rating);
+  const avg = rated.length ? rated.reduce((a, g) => a + g.rating, 0) / rated.length : 0;
+  let ach = 0;
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith("backlog.achDone.")) ach += store.load(k, []).length; } } catch (_) {}
+  const plat = {};
+  games.forEach(g => { if (g.platform) plat[g.platform] = (plat[g.platform] || 0) + 1; });
+  const top = Object.entries(plat).sort((a, b) => b[1] - a[1])[0];
+  return [
+    [games.length, games.length === 1 ? "jogo" : "jogos"],
+    [done, done === 1 ? "zerado" : "zerados"],
+    [fmtH(hours) + " h", "jogadas"],
+    [ach, ach === 1 ? "conquista" : "conquistas"],
+    [avg ? fmtH(avg) : "–", "nota média"],
+    [top ? platLabel(top[0]) : "–", "mais jogada"]
+  ];
+}
+function openProfile(showEmail) {
+  const fav = games.find(g => g.id === profile.favGame);
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Fechar">${ICON.close}</button></div>
+    <div class="profile-hero">
+      ${avatarHTML(96)}
+      <input class="name-input" id="p-name" maxlength="40" placeholder="Seu nome" value="${esc(profile.name)}">
+      <input class="bio-input" id="p-bio" maxlength="80" placeholder="Uma frase sua, tipo: zerando o backlog um dia por vez" value="${esc(profile.bio)}">
+    </div>
+
+    <div class="stats-grid">${profileStats().map(([v, l]) => `<div class="stat"><b>${esc(v)}</b><span>${l}</span></div>`).join("")}</div>
+
+    <div class="field">
+      <span class="field-label">Cor do avatar</span>
+      <div class="swatches" id="p-colors">${AVATAR_COLORS.map(c =>
+        `<button class="sw ${profile.color === c && !(profile.usePhoto && auth && auth.photo) ? "is-on" : ""}" data-c="${c}" style="background:${c}" aria-label="Cor ${c}"></button>`).join("")}
+        ${auth && auth.photo ? `<button class="chip ${profile.usePhoto ? "is-on" : ""}" id="p-photo">Foto do Google</button>` : ""}</div>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Plataforma favorita</span>
+      <div class="seg" id="p-plat">${PLATFORMS.map(p => `<button class="chip ${profile.favPlatform === p ? "is-on" : ""}" data-v="${p}">${platLabel(p)}</button>`).join("")}</div>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Jogo favorito${fav ? `: ${esc(fav.title)}` : ""}</span>
+      ${games.length ? `<div class="rail fav-rail" id="p-fav" style="padding:0">${sortGames([...games]).map(g =>
+        `<button class="fav ${profile.favGame === g.id ? "is-on" : ""}" data-g="${g.id}">${coverHTML(gameCovers(g), g.title)}</button>`).join("")}</div>`
+        : `<p class="hero-sub" style="margin:0">Adicione jogos à biblioteca para escolher o favorito.</p>`}
+    </div>
+
+    <div class="panel" id="acct">
+      <span class="field-label">Conta</span>
+      ${!cloudReady ? `<p class="panel-note" style="margin:0">O login na nuvem ainda não está configurado nesta versão do app. Seu perfil e sua biblioteca ficam salvos neste celular.</p>`
+      : auth ? `
+        <p class="panel-note" style="margin:0" id="acct-status">${syncLine()}</p>
+        <div class="actions" style="margin-top:14px">
+          <button class="btn btn-ghost" id="a-sync">Sincronizar agora</button>
+          <button class="btn btn-danger" id="a-out">Sair da conta</button>
+        </div>`
+      : `
+        <p class="panel-note" style="margin:0">Entre para guardar biblioteca, notas, análises e conquistas na nuvem e continuar de onde parou em outro celular. É opcional.</p>
+        <div class="actions" style="margin-top:14px">
+          ${googleReady ? `<button class="btn btn-primary" id="a-google"><svg viewBox="0 0 24 24"><path d="M20.5 12.2c0-.6-.1-1.2-.2-1.8H12v3.4h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.6-3.9 2.6-6.5z"/><path d="M12 21c2.4 0 4.5-.8 5.9-2.2L15 16.6c-.8.5-1.8.9-3 .9a5.2 5.2 0 0 1-4.9-3.6H4.1v2.3A9 9 0 0 0 12 21z"/><path d="M7.1 13.9a5.4 5.4 0 0 1 0-3.5V8.1h-3a9 9 0 0 0 0 8.1z"/><path d="M12 6.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6A9 9 0 0 0 4.1 8.1l3 2.3A5.2 5.2 0 0 1 12 6.6z"/></svg>Entrar com Google</button>` : ""}
+          <button class="btn btn-ghost" id="a-email-toggle">Entrar com e-mail</button>
+        </div>
+        <form class="email-form" id="a-email" ${showEmail ? "" : "hidden"}>
+          <input class="text-input" id="a-mail" type="email" autocomplete="email" placeholder="E-mail">
+          <input class="text-input" id="a-pass" type="password" autocomplete="current-password" placeholder="Senha (mínimo 6 caracteres)">
+          <p class="form-error" id="a-err" hidden></p>
+          <div class="two-btns">
+            <button class="btn btn-primary" type="submit" data-mode="in">Entrar</button>
+            <button class="btn btn-ghost" type="submit" data-mode="up">Criar conta</button>
+          </div>
+        </form>`}
+    </div>`);
+
+  // Nome e frase entram no perfil na hora; o salvamento espera a pessoa parar de digitar
+  let t;
+  const later = () => { clearTimeout(t); t = setTimeout(saveProfile, 500); };
+  body.querySelector("#p-name").addEventListener("input", e => { profile.name = e.target.value.trim(); later(); });
+  body.querySelector("#p-bio").addEventListener("input", e => { profile.bio = e.target.value.trim(); later(); });
+  body.querySelector("#p-colors").addEventListener("click", e => {
+    const sw = e.target.closest("[data-c]");
+    if (sw) { profile.color = sw.dataset.c; profile.usePhoto = false; }
+    else if (e.target.closest("#p-photo")) profile.usePhoto = !profile.usePhoto;
+    else return;
+    saveProfile(); openProfile();
+  });
+  body.querySelector("#p-plat").addEventListener("click", e => {
+    const b = e.target.closest("[data-v]");
+    if (!b) return;
+    profile.favPlatform = profile.favPlatform === b.dataset.v ? "" : b.dataset.v;
+    saveProfile();
+    b.parentElement.querySelectorAll("[data-v]").forEach(x => x.classList.toggle("is-on", x.dataset.v === profile.favPlatform));
+  });
+  const favRail = body.querySelector("#p-fav");
+  if (favRail) favRail.addEventListener("click", e => {
+    const b = e.target.closest("[data-g]");
+    if (!b) return;
+    profile.favGame = profile.favGame === b.dataset.g ? "" : b.dataset.g;
+    saveProfile();
+    const y = body.scrollTop; openProfile(); body.scrollTop = y;
+  });
+
+  const on = (id, fn) => { const el = body.querySelector(id); if (el) el.addEventListener("click", fn); };
+  on("#a-sync", () => { fullSync(); toast("Sincronizando…"); });
+  on("#a-out", () => {
+    auth = null; store.save("backlog.auth.v1", null);
+    toast("Você saiu da conta. Seus dados continuam neste celular.");
+    renderAvatarButton(); openProfile();
+    if (currentView === "settings") renderSettings();
+  });
+  const afterLogin = async () => {
+    toast("Conta conectada. Sincronizando…");
+    openProfile();
+    await fullSync();
+    if (!sheet.hidden) { const y = body.scrollTop; openProfile(); body.scrollTop = y; }
+    if (currentView === "settings") renderSettings();
+  };
+  on("#a-google", async e => {
+    const b = e.currentTarget; b.disabled = true;
+    try { await signInGoogle(); await afterLogin(); }
+    catch (err) { const m = authError(err); if (m) toast(m); b.disabled = false; }
+  });
+  on("#a-email-toggle", () => { const f = body.querySelector("#a-email"); f.hidden = !f.hidden; if (!f.hidden) body.querySelector("#a-mail").focus(); });
+  const form = body.querySelector("#a-email");
+  if (form) form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const mode = (e.submitter && e.submitter.dataset.mode) || "in";
+    const err = body.querySelector("#a-err");
+    const email = body.querySelector("#a-mail").value.trim(), pass = body.querySelector("#a-pass").value;
+    err.hidden = true;
+    if (!email || !pass) { err.textContent = "Preencha e-mail e senha."; err.hidden = false; return; }
+    form.querySelectorAll("button").forEach(x => x.disabled = true);
+    try { await signInEmail(mode, email, pass); await afterLogin(); }
+    catch (ex) {
+      err.textContent = authError(ex) || "Não foi possível entrar."; err.hidden = false;
+      form.querySelectorAll("button").forEach(x => x.disabled = false);
+    }
+  });
+}
+
 /* Botão voltar do Android */
 window.__onBack = () => {
   if (!sheet.hidden) { sheetBack ? sheetBack() : closeSheet(); return true; }
@@ -1145,6 +1519,7 @@ if (window.__PREVIEW && !games.length) {
 }
 applyTheme();
 renderLibrary();
+startCloud();
 // Jogos antigos sem cópia local da capa: baixa agora em segundo plano
 games.filter(g => !g.cover && (g.coverRemote || (g.coverAlts || []).length)).forEach(g =>
   downloadCover(gameCovers(g), "cover_" + g.id).then(l => { if (l) { g.cover = l; saveGames(); } }));

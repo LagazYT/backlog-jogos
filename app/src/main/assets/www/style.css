@@ -421,3 +421,57 @@ textarea.review:focus { border-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Perfil e conta ---------- */
+.avatar {
+  display: inline-grid; place-items: center; flex: none; border-radius: 50%; overflow: hidden;
+  font-stretch: 80%; font-weight: 900; letter-spacing: .01em; background: var(--bg-3); color: var(--muted);
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.avatar svg { stroke-width: 2; }
+#lib-count { padding-bottom: 2px; }
+.avatar-btn { position: relative; display: block; border-radius: 50%; }
+.avatar-btn .avatar { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--line); }
+.sync-dot { position: absolute; right: -1px; bottom: -1px; width: 12px; height: 12px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 2.5px var(--bg); }
+.sync-dot.is-err { background: var(--accent-2); }
+
+.profile-card {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center;
+  width: 100%; text-align: left; padding: 16px; border-radius: 18px;
+  background: var(--bg-2); border: 1px solid var(--line);
+}
+.profile-name { font-stretch: 85%; font-weight: 800; font-size: 19px; line-height: 1.15; }
+
+.profile-hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; margin-top: 8px; }
+.profile-hero .avatar { margin-bottom: 8px; box-shadow: 0 0 0 4px var(--bg), 0 0 0 6px var(--accent); }
+.name-input, .bio-input {
+  width: 100%; border: 0; outline: 0; background: transparent; text-align: center; border-radius: 10px; padding: 4px 8px;
+}
+.name-input { font-stretch: 75%; font-weight: 900; font-size: 34px; line-height: 1.05; }
+.bio-input { color: var(--muted); font-size: 14.5px; }
+.name-input:focus, .bio-input:focus { background: var(--bg-2); }
+.name-input::placeholder, .bio-input::placeholder { color: var(--faint); }
+
+.stats-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 22px; }
+.stat { background: var(--bg-2); border: 1px solid var(--line); border-radius: 14px; padding: 12px 10px; min-width: 0; }
+.stat b { display: block; font-stretch: 70%; font-weight: 900; font-size: 26px; line-height: 1.05; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stat span { font-size: 12px; color: var(--muted); }
+.stat:first-child { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.stat:first-child span { color: var(--on-accent); opacity: .7; }
+
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.sw { width: 32px; height: 32px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(127,127,127,.35); }
+.sw.is-on { box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--text); }
+.fav-rail { gap: 10px; }
+.fav { flex: none; width: 74px; }
+.fav .cover { border-radius: 8px; }
+.fav.is-on .cover { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.email-form { display: grid; gap: 10px; margin-top: 14px; }
+.text-input {
+  height: 50px; border-radius: 14px; border: 1px solid var(--line); background: var(--bg);
+  padding: 0 14px; font-size: 16px; outline: 0; width: 100%;
+}
+.text-input:focus { border-color: var(--accent); }
+.two-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.form-error { margin: 0; color: var(--accent-2); font-size: 13.5px; font-weight: 600; }

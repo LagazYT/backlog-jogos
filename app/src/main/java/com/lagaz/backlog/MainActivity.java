@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.CancellationSignal;
 import android.view.View;
 import android.view.Window;
 import android.webkit.JavascriptInterface;
@@ -15,6 +16,18 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+
+import androidx.credentials.Credential;
+import androidx.credentials.CredentialManager;
+import androidx.credentials.CredentialManagerCallback;
+import androidx.credentials.CustomCredential;
+import androidx.credentials.GetCredentialRequest;
+import androidx.credentials.GetCredentialResponse;
+import androidx.credentials.exceptions.GetCredentialCancellationException;
+import androidx.credentials.exceptions.GetCredentialException;
+
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption;
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
 
 import org.json.JSONObject;
 
@@ -28,6 +41,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
@@ -225,6 +239,64 @@ public class MainActivity extends Activity {
                     f.delete();
                 }
             }
+        }
+
+        /** Requisição genérica (POST/PUT/PATCH/DELETE) usada pelo login e pela nuvem. */
+        @JavascriptInterface
+        public void httpRequest(final String method, final String url, final String body, final String contentType, final String id) {
+            pool.submit(() -> {
+                try {
+                    HttpURLConnection c = open(url);
+                    c.setRequestMethod(method);
+                    c.setRequestProperty("Accept", "application/json");
+                    if (body != null && !body.isEmpty()) {
+                        c.setDoOutput(true);
+                        c.setRequestProperty("Content-Type", contentType);
+                        try (OutputStream out = c.getOutputStream()) { out.write(body.getBytes(StandardCharsets.UTF_8)); }
+                    }
+                    int code = c.getResponseCode();
+                    InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+                    String text = in == null ? "" : new String(readAll(in), StandardCharsets.UTF_8);
+                    if (code < 200 || code >= 300) { reply(id, false, "HTTP " + code + " " + text); return; }
+                    reply(id, true, text);
+                } catch (Exception e) {
+                    reply(id, false, String.valueOf(e.getMessage()));
+                }
+            });
+        }
+
+        /** Abre o seletor de contas do Google e devolve o ID token. */
+        @JavascriptInterface
+        public void googleSignIn(final String webClientId, final String id) {
+            runOnUiThread(() -> {
+                try {
+                    GetSignInWithGoogleOption option = new GetSignInWithGoogleOption.Builder(webClientId).build();
+                    GetCredentialRequest request = new GetCredentialRequest.Builder().addCredentialOption(option).build();
+                    CredentialManager cm = CredentialManager.create(MainActivity.this);
+                    Executor main = MainActivity.this::runOnUiThread;
+                    cm.getCredentialAsync(MainActivity.this, request, new CancellationSignal(), main,
+                        new CredentialManagerCallback<GetCredentialResponse, GetCredentialException>() {
+                            @Override
+                            public void onResult(GetCredentialResponse response) {
+                                Credential cred = response.getCredential();
+                                if (cred instanceof CustomCredential
+                                        && GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(cred.getType())) {
+                                    GoogleIdTokenCredential g = GoogleIdTokenCredential.createFrom(cred.getData());
+                                    reply(id, true, g.getIdToken());
+                                } else {
+                                    reply(id, false, "credencial inesperada");
+                                }
+                            }
+
+                            @Override
+                            public void onError(GetCredentialException e) {
+                                reply(id, false, e instanceof GetCredentialCancellationException ? "cancelado" : String.valueOf(e.getMessage()));
+                            }
+                        });
+                } catch (Exception e) {
+                    reply(id, false, String.valueOf(e.getMessage()));
+                }
+            });
         }
 
         @JavascriptInterface
