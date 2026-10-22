@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Três caixas de jogo na estante; a última inclinada -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#ECEEF3" android:pathData="M34,36h9a2,2 0,0 1,2 2v34a2,2 0,0 1,-2 2h-9a2,2 0,0 1,-2 -2v-34a2,2 0,0 1,2 -2z"/>
+    <path android:fillColor="#93ABFF" android:pathData="M50,36h9a2,2 0,0 1,2 2v34a2,2 0,0 1,-2 2h-9a2,2 0,0 1,-2 -2v-34a2,2 0,0 1,2 -2z"/>
+    <path android:fillColor="#FFC65C" android:pathData="M66.3,38.6l8.7,-2.3a2,2 0,0 1,2.45 1.42l8.8,32.8a2,2 0,0 1,-1.42 2.45l-8.7,2.3a2,2 0,0 1,-2.45 -1.42l-8.8,-32.8a2,2 0,0 1,1.42 -2.45z"/>
+    <path android:fillColor="#2E3445" android:pathData="M28,76h52v3h-52z"/>
+</vector>
