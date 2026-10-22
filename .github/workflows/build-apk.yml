@@ -39,7 +39,7 @@ jobs:
           chmod +x gradlew
           N=${{ github.run_number }}
           echo "window.APP_VERSION = { tag: \"v1.5.$N\", build: $N };" > app/src/main/assets/www/version.js
-          ./gradlew --no-daemon assembleRelease -Pvc=$N -Pvn=1.5.$N
+          ./gradlew --no-daemon assembleRelease -Pvc=$N -Pvn=1.5.$N 2>&1 | tee build.log | tail -40; test ${PIPESTATUS[0]} -eq 0 || { grep -E -A8 "What went wrong|error:" build.log | sed 's/^/::error::/' | head -20; exit 1; }
           cp app/build/outputs/apk/release/app-release.apk Backlog.apk
           rm -f app/release.jks
 

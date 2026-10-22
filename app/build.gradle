@@ -34,7 +34,7 @@ android {
         release {
             minifyEnabled false
             // Sem a senha (build local), assina com a chave de debug do próprio Android Studio
-            signingConfig (keystorePass && releaseKey.exists()) ? signingConfigs.release : signingConfigs.debug
+            signingConfig = (keystorePass && releaseKey.exists()) ? signingConfigs.release : signingConfigs.debug
         }
     }
 
