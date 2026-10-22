@@ -1,0 +1,30 @@
+name: Probe
+on:
+  push:
+    branches: [ probe2 ]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          mkdir -p probe; cd probe
+          ID=76561197960435530
+          UA="Mozilla/5.0 (Linux; Android 14) BacklogApp/1.0"
+          g(){ curl -sSL -A "$UA" -o "$1" -w "$1 %{http_code} %{url_effective}\n" "$2" >> codes.txt || echo "$1 fail" >> codes.txt; }
+          g owned.json "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?steamid=$ID&include_appinfo=1"
+          g recent.json "https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v1/?steamid=$ID"
+          g games_xml.xml "https://steamcommunity.com/profiles/$ID/games?xml=1"
+          g games_page.html "https://steamcommunity.com/profiles/$ID/games/?tab=all"
+          g profile.xml "https://steamcommunity.com/profiles/$ID/?xml=1"
+          g ach_xml.xml "https://steamcommunity.com/profiles/$ID/stats/440/achievements/?xml=1"
+          g ach_page.html "https://steamcommunity.com/profiles/$ID/stats/440/achievements/"
+          g ach_new.html "https://steamcommunity.com/profiles/$ID/stats/440/?tab=achievements"
+          g playerach.json "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?steamid=$ID&appid=440"
+          g topach.json "https://api.steampowered.com/IPlayerService/GetTopAchievementsForGames/v1/?steamid=$ID&appids%5B0%5D=440&max_achievements=5"
+          g openid.html "https://steamcommunity.com/openid/login"
+          cat codes.txt
+          cd ..; git config user.name probe; git config user.email probe@example.com
+          git add probe && git commit -m probe && git push
