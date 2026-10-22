@@ -225,6 +225,8 @@ async function searchWiki(q) {
   const d = await getJSON(url);
   return Object.values(d.query?.pages || {})
     .sort((a, b) => a.index - b.index)
+    // tira páginas de lista/série ("Satellaview games from…", "… LCD games")
+    .filter(p => !/^List of|\bgames\b|\bseries\b/i.test(p.title))
     .map(p => ({
       title: cleanWikiTitle(p.title), wiki: p.title,
       year: ((p.description || "").match(/\b(19[7-9]\d|20\d\d)\b/) || [])[0] || "",

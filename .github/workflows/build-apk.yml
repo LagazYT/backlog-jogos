@@ -2,7 +2,7 @@ name: Gerar APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, dev ]
   workflow_dispatch:
 
 permissions:
@@ -35,6 +35,7 @@ jobs:
           path: Backlog.apk
 
       - name: Publicar na página de Releases
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.1.${{ github.run_number }}
