@@ -1,0 +1,27 @@
+name: Probe
+on:
+  push:
+    branches: [ probe3 ]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          mkdir -p probe; cd probe
+          UA="Mozilla/5.0 (Linux; Android 14; wv) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36"
+          curl -sS -A "$UA" -o steam_token.json -w "steam_token %{http_code}\n" "https://store.steampowered.com/pointssummary/ajaxgetasyncconfig" >> codes.txt
+          curl -sS -o owned_badtoken.json -w "owned_badtoken %{http_code}\n" "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?access_token=abc&steamid=76561197960435530" >> codes.txt
+          curl -sS -A "$UA" -o live.html -D live_headers.txt -w "live %{http_code} %{redirect_url}\n" "https://login.live.com/oauth20_authorize.srf?client_id=000000004C12AE6F&redirect_uri=https%3A%2F%2Flogin.live.com%2Foauth20_desktop.srf&response_type=token&scope=service%3A%3Auser.auth.xboxlive.com%3A%3AMBI_SSL&display=touch&locale=pt-BR" >> codes.txt
+          curl -sS -o xboxauth.json -w "xboxauth %{http_code}\n" -H "Content-Type: application/json" -H "x-xbl-contract-version: 1" -d '{"Properties":{"AuthMethod":"RPS","SiteName":"user.auth.xboxlive.com","RpsTicket":"bad"},"RelyingParty":"http://auth.xboxlive.com","TokenType":"JWT"}' https://user.auth.xboxlive.com/user/authenticate >> codes.txt
+          curl -sS -o psn.json -w "psn_ssocookie %{http_code}\n" https://ca.account.sony.com/api/v1/ssocookie >> codes.txt
+          grep -o -i -E "unauthorized_client|invalid_request|invalid_client|The provided value for the input parameter[^<]{0,120}" live.html | head -3 >> codes.txt || true
+          head -c 300 steam_token.json >> codes.txt; echo >> codes.txt
+          head -c 300 owned_badtoken.json >> codes.txt; echo >> codes.txt
+          head -c 300 psn.json >> codes.txt
+          cat codes.txt
+          rm -f live.html
+          cd ..; git config user.name probe; git config user.email probe@example.com
+          git add probe && git commit -m probe && git push
