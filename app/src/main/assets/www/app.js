@@ -812,22 +812,30 @@ const achMem = {};
 async function fetchAchievements(appid) {
   const cacheKey = appid + "_" + settings.achLang;
   if (achMem[cacheKey]) return achMem[cacheKey];
-  const cached = store.load("backlog.achData." + cacheKey, null);
+  const cached = store.load("backlog.achData2." + cacheKey, null);
   if (cached && Date.now() - cached.at < 3 * 24 * 3600 * 1000) return (achMem[cacheKey] = cached.list);
   if (window.__PREVIEW && window.__PREVIEW.achievements) return window.__PREVIEW.achievements(appid);
-  const html = await getText(`https://steamcommunity.com/stats/${appid}/achievements/?l=${settings.achLang}`);
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const list = [...doc.querySelectorAll(".achieveRow")].map((row, i) => {
-    const icon = row.querySelector(".achieveImgHolder img, img")?.getAttribute("src") || "";
-    const pct = parseFloat((row.querySelector(".achievePercent")?.textContent || "").replace(",", ".")) || 0;
-    return {
-      id: (icon.split("/").pop() || "").split(".")[0] || "a" + i,
-      name: (row.querySelector("h3")?.textContent || "").trim(),
-      desc: (row.querySelector("h5")?.textContent || "").trim(),
-      icon, pct
-    };
-  }).filter(a => a.name);
-  if (list.length) store.save("backlog.achData." + cacheKey, { at: Date.now(), list });
+  let list = [];
+  try {
+    // Serviço público da Steam: nome, descrição, ícone e % de jogadores, já no idioma escolhido
+    const d = await getJSON(`https://api.steampowered.com/IPlayerService/GetGameAchievements/v1/?appid=${appid}&language=${settings.achLang}`);
+    list = (d.response?.achievements || []).map(a => ({
+      id: a.internal_name,
+      name: (a.localized_name || a.internal_name || "").trim(),
+      desc: (a.localized_desc || "").trim(),
+      icon: a.icon ? `https://cdn.fastly.steamstatic.com/steamcommunity/public/images/apps/${appid}/${a.icon}` : "",
+      hidden: !!a.hidden,
+      pct: parseFloat(a.player_percent_unlocked) || 0
+    })).filter(a => a.name);
+  } catch (e) {
+    // Alternativa: porcentagens globais (sem nomes traduzidos)
+    const g = await getJSON(`https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=${appid}`);
+    list = (g.achievementpercentages?.achievements || []).map(a => ({
+      id: a.name, name: a.name.replace(/_/g, " ").toLowerCase().replace(/^\w/, c => c.toUpperCase()),
+      desc: "", icon: "", hidden: false, pct: parseFloat(a.percent) || 0
+    }));
+  }
+  if (list.length) store.save("backlog.achData2." + cacheKey, { at: Date.now(), list });
   return (achMem[cacheKey] = list);
 }
 
@@ -894,7 +902,7 @@ async function openAchievements(appid, title, back) {
           <div>
             <div class="ach-name">${esc(a.name)}</div>
             ${a.desc ? `<div class="ach-desc">${esc(a.desc)}</div>` : ""}
-            <div class="ach-meta"><span class="rarity ${r[0]}">${r[1]}</span><span>${fmtH(a.pct)}% dos jogadores</span></div>
+            <div class="ach-meta"><span class="rarity ${r[0]}">${r[1]}</span>${a.hidden ? `<span class="rarity r-common">Secreta</span>` : ""}<span>${fmtH(a.pct)}% dos jogadores</span></div>
           </div>
           <span class="check" aria-label="Marcar como conquistada">${ICON.check}</span>
         </button></li>`;
@@ -1039,7 +1047,7 @@ function renderSettings() {
           <span class="row-chev">${ICON.chev}</span></button></div>
       </div>
     </div>
-    <p class="about">Backlog 1.1. Capas da Wikipédia e da Steam. Conquistas e jogadores agora vêm da Steam.</p>`;
+    <p class="about">Backlog 1.1.1. Capas da Wikipédia e da Steam. Conquistas e jogadores agora vêm da Steam.</p>`;
 }
 $("#settings").addEventListener("click", e => {
   const b = e.target.closest("[data-set]");
