@@ -2,6 +2,7 @@ package com.lagaz.backlog;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.res.Configuration;
@@ -11,7 +12,13 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.CancellationSignal;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.webkit.CookieManager;
 import android.view.Window;
 import android.provider.Settings;
 import android.webkit.JavascriptInterface;
@@ -35,7 +42,12 @@ import androidx.credentials.exceptions.GetCredentialException;
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption;
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
+
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -397,6 +409,126 @@ public class MainActivity extends Activity {
                 startActivity(i);
             });
             return "ok";
+        }
+
+        /**
+         * Requisição completa: cabeçalhos em JSON, opção de não seguir redirecionamento.
+         * Responde com JSON {status, location, body}.
+         */
+        @JavascriptInterface
+        public void httpFull(final String method, final String url, final String headersJson, final String body,
+                             final boolean follow, final String id) {
+            pool.submit(() -> {
+                try {
+                    HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                    c.setConnectTimeout(15000);
+                    c.setReadTimeout(30000);
+                    c.setInstanceFollowRedirects(follow);
+                    c.setRequestMethod(method);
+                    c.setRequestProperty("User-Agent", USER_AGENT);
+                    if (headersJson != null && !headersJson.isEmpty()) {
+                        JSONObject h = new JSONObject(headersJson);
+                        Iterator<String> it = h.keys();
+                        while (it.hasNext()) { String k = it.next(); c.setRequestProperty(k, h.getString(k)); }
+                    }
+                    if (body != null && !body.isEmpty()) {
+                        c.setDoOutput(true);
+                        try (OutputStream out = c.getOutputStream()) { out.write(body.getBytes(StandardCharsets.UTF_8)); }
+                    }
+                    int code = c.getResponseCode();
+                    InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+                    String text = in == null ? "" : new String(readAll(in), StandardCharsets.UTF_8);
+                    JSONObject r = new JSONObject();
+                    r.put("status", code);
+                    String loc = c.getHeaderField("Location");
+                    r.put("location", loc == null ? "" : loc);
+                    r.put("body", text);
+                    reply(id, true, r.toString());
+                } catch (Exception e) {
+                    reply(id, false, String.valueOf(e.getMessage()));
+                }
+            });
+        }
+
+        /**
+         * Abre um navegador dentro do app para a pessoa entrar numa conta (Steam, PlayStation, Xbox).
+         * Depois de cada página carregada roda captureJs; quando ele devolver texto, fecha e responde.
+         * finishUrl: endereço aberto pelo botão "Concluir" (pode ser vazio).
+         */
+        @JavascriptInterface
+        public void openLogin(final String title, final String startUrl, final String captureJs,
+                              final String finishUrl, final String hint, final String id) {
+            runOnUiThread(() -> {
+                final Dialog dlg = new Dialog(MainActivity.this, android.R.style.Theme_Black_NoTitleBar);
+                final boolean[] done = {false};
+                LinearLayout root = new LinearLayout(MainActivity.this);
+                root.setOrientation(LinearLayout.VERTICAL);
+                root.setBackgroundColor(Color.parseColor("#0B0B0C"));
+
+                LinearLayout bar = new LinearLayout(MainActivity.this);
+                bar.setOrientation(LinearLayout.HORIZONTAL);
+                bar.setGravity(Gravity.CENTER_VERTICAL);
+                int pad = (int) (12 * getResources().getDisplayMetrics().density);
+                bar.setPadding(pad, pad / 2, pad, pad / 2);
+                Button close = new Button(MainActivity.this);
+                close.setText("Fechar");
+                TextView t = new TextView(MainActivity.this);
+                t.setText(title);
+                t.setTextColor(Color.WHITE);
+                t.setTextSize(16);
+                t.setPadding(pad, 0, pad, 0);
+                LinearLayout.LayoutParams grow = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                bar.addView(close);
+                bar.addView(t, grow);
+                final WebView lw = new WebView(MainActivity.this);
+                if (finishUrl != null && !finishUrl.isEmpty()) {
+                    Button fin = new Button(MainActivity.this);
+                    fin.setText("Concluir");
+                    fin.setOnClickListener(v -> lw.loadUrl(finishUrl));
+                    bar.addView(fin);
+                }
+                root.addView(bar);
+                if (hint != null && !hint.isEmpty()) {
+                    TextView h = new TextView(MainActivity.this);
+                    h.setText(hint);
+                    h.setTextColor(Color.parseColor("#0B0B0C"));
+                    h.setBackgroundColor(Color.parseColor("#FFD21F"));
+                    h.setPadding(pad, pad / 2, pad, pad / 2);
+                    h.setTextSize(13);
+                    root.addView(h);
+                }
+
+                WebSettings ws = lw.getSettings();
+                ws.setJavaScriptEnabled(true);
+                ws.setDomStorageEnabled(true);
+                CookieManager.getInstance().setAcceptCookie(true);
+                CookieManager.getInstance().setAcceptThirdPartyCookies(lw, true);
+                lw.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public void onPageFinished(WebView view, String url) {
+                        if (done[0]) return;
+                        view.evaluateJavascript("(function(){try{" + captureJs + "}catch(e){return null}})()", value -> {
+                            if (done[0] || value == null || "null".equals(value) || "\"\"".equals(value)) return;
+                            try {
+                                String v = new JSONArray("[" + value + "]").getString(0);
+                                if (v == null || v.isEmpty()) return;
+                                done[0] = true;
+                                reply(id, true, v);
+                                dlg.dismiss();
+                            } catch (Exception ignored) { }
+                        });
+                    }
+                });
+                root.addView(lw, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+                close.setOnClickListener(v -> dlg.dismiss());
+                dlg.setOnDismissListener(d -> {
+                    if (!done[0]) { done[0] = true; reply(id, false, "cancelado"); }
+                    lw.destroy();
+                });
+                dlg.setContentView(root);
+                dlg.show();
+                lw.loadUrl(startUrl);
+            });
         }
 
         @JavascriptInterface

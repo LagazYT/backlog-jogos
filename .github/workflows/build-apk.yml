@@ -26,8 +26,8 @@ jobs:
         run: |
           chmod +x gradlew
           N=${{ github.run_number }}
-          echo "window.APP_VERSION = { tag: \"v1.3.$N\", build: $N };" > app/src/main/assets/www/version.js
-          ./gradlew --no-daemon assembleRelease -Pvc=$N -Pvn=1.3.$N
+          echo "window.APP_VERSION = { tag: \"v1.4.$N\", build: $N };" > app/src/main/assets/www/version.js
+          ./gradlew --no-daemon assembleRelease -Pvc=$N -Pvn=1.4.$N
           cp app/build/outputs/apk/release/app-release.apk Backlog.apk
 
       - name: Guardar o APK nos artefatos
@@ -40,7 +40,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.3.${{ github.run_number }}
-          name: Backlog 1.3.${{ github.run_number }}
+          tag_name: v1.4.${{ github.run_number }}
+          name: Backlog 1.4.${{ github.run_number }}
           files: Backlog.apk
           body: ${{ github.event.head_commit.message }}

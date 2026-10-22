@@ -35,7 +35,9 @@ Feito pelo canal **Lagaz**, pra quem leva a sério essa coisa de "um dia eu zero
 | 🔥 **Em alta agora** | Os single players com mais gente jogando neste exato momento, com número ao vivo da Steam. |
 | 🏆 **Rastreador de conquistas** | Pesquisa um jogo da Steam e vê todas as conquistas (em português!), quantos % dos jogadores têm cada uma, quais são raras e secretas. Vai marcando as que você fez e acompanha o progresso. |
 | 👤 **Perfil** | Nome, frase, cor do avatar, plataforma e jogo favoritos, e as suas estatísticas: jogos, zerados, horas, conquistas, nota média. |
-| ☁️ **Login opcional** | Entra com Google ou e-mail pra salvar tudo na nuvem e continuar em outro celular. Não quer conta? Usa sem, de boa. |
+| 🔗 **Steam, Xbox e PlayStation** | Conecta suas contas e o app puxa seus jogos, as horas jogadas e o progresso de conquistas e troféus direto pra biblioteca. Sua nota e análise não são mexidas. |
+| 🔄 **Atualiza sozinho** | O app avisa (ou já baixa) quando sai versão nova. Também tem o botão *Buscar atualizações*. |
+| ☁️ **Perfil offline ou conta** | Usa offline, tudo no celular, ou entra com Google pra salvar na nuvem (o login com Google está chegando). |
 | 🎨 **Temas** | Modo escuro, claro ou do sistema, e três temas: **Arcade** (amarelo, vermelho e preto), **Grafite** e **Néon**. |
 | 💾 **Backup** | Exporta e importa sua biblioteca quando quiser. |
 
@@ -73,7 +75,12 @@ Feito pelo canal **Lagaz**, pra quem leva a sério essa coisa de "um dia eu zero
 - **Capas e busca:** Wikipédia (cobre todas as plataformas, até Nintendo) e loja da Steam.
 - **Jogadores agora e conquistas:** serviços públicos da Steam. Por isso conquistas e o ranking *Em alta* só valem pra jogos que estão na Steam.
 - **Tempo pra zerar:** médias aproximadas da comunidade, guardadas em [`data.js`](app/src/main/assets/www/data.js). Quer adicionar um jogo? Manda um PR!
-- **Sua conta:** Firebase (login e banco de dados). Cada pessoa só consegue ler e escrever os próprios dados.
+- **Contas de jogos:**
+  - *Steam:* você entra na Steam dentro do app e ele cria sua chave pessoal da API (precisa dos detalhes de jogos públicos no perfil).
+  - *PlayStation:* login na PSN dentro do app, o mesmo jeito que sites tipo PSNProfiles usam. Lê jogos de PS4/PS5, horas e troféus.
+  - *Xbox:* via [OpenXBL](https://xbl.io), serviço gratuito, porque a Microsoft não libera acesso direto. Você cola a chave e pronto.
+  - Chaves e acessos ficam só no seu celular, nunca vão pra nuvem.
+- **Sua conta (opcional):** Firebase (login e banco de dados). Cada pessoa só consegue ler e escrever os próprios dados.
 
 ## 🛠️ Pra quem curte código
 

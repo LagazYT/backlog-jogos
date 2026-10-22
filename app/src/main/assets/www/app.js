@@ -594,6 +594,8 @@ function openGame(game, result, back) {
       <div>
         <h2 class="hero-title">${esc(draft.title)}</h2>
         <div class="hero-sub">${esc(draft.year || "")}</div>
+        ${!isNew && game.sources ? `<div class="src-tags">${Object.entries(game.sources).map(([k, v]) =>
+          `<span class="src-tag">${esc((PLATFORM_INFO[k] || {}).name || k)}${v.minutes ? `, ${fmtH(Math.round(v.minutes / 6) / 10)} h` : ""}${v.ach && v.ach.total ? `, ${v.ach.done}/${v.ach.total}` : ""}</span>`).join("")}</div>` : ""}
         ${isNew ? "" : `<button class="link-btn" id="swap">Trocar capa</button>`}
       </div>
     </div>
@@ -729,7 +731,7 @@ function openGame(game, result, back) {
   const swap = body.querySelector("#swap");
   if (swap) swap.addEventListener("click", () => openCoverPicker(game));
   const seeAch = body.querySelector("#see-ach");
-  if (seeAch) seeAch.addEventListener("click", () => openAchievementsFor(draft.title, steamId, () => openGame(game, null, back)));
+  if (seeAch) seeAch.addEventListener("click", () => openGameAchievements(game, () => openGame(game, null, back)));
 }
 
 /* --- Trocar capa --- */
@@ -865,71 +867,98 @@ async function openAchievementsFor(title, steamId, back) {
   toast("Esse jogo não está na Steam, então não há lista de conquistas");
 }
 
-let achFilter = "all", achSort = "default";
 async function openAchievements(appid, title, back) {
+  return openAchSheet({
+    title, banner: steamHeader(appid), source: "Steam", manualKey: appid, trackKey: appid,
+    emptyText: "Esse jogo não tem conquistas na Steam.",
+    load: async () => {
+      const list = await fetchAchievements(appid);
+      let synced = new Set();
+      if (accounts.steam && accounts.steam.key) { try { synced = await steamUnlocked(appid); } catch (_) {} }
+      return { list, synced };
+    }
+  }, back);
+}
+
+/* Tela de conquistas/troféus de qualquer plataforma.
+   cfg.load() devolve { list: [{id,name,desc,icon,pct,hidden,kind}], synced: Set de ids já desbloqueados na conta }.
+   cfg.manualKey permite marcar à mão (só Steam); cfg.trackKey guarda em "Acompanhando". */
+let achFilter = "all", achSort = "default";
+async function openAchSheet(cfg, back) {
+  const noun = cfg.noun || "conquistas";
   showSheet(`
     <div class="sheet-top"><button class="icon-btn" data-back aria-label="${back ? "Voltar" : "Fechar"}">${back ? ICON.back : ICON.close}</button></div>
-    <div class="banner">${coverHTML([steamHeader(appid)], "").replace('class="cover"', 'class="cover" style="aspect-ratio:auto;height:100%;border-radius:0"')}</div>
+    <div class="banner">${coverHTML([cfg.banner].filter(Boolean), "").replace('class="cover"', 'class="cover" style="aspect-ratio:auto;height:100%;border-radius:0"')}</div>
     <div class="ach-head">
-      <h2 class="hero-title">${esc(title)}</h2>
+      <h2 class="hero-title">${esc(cfg.title)}</h2>
       <div id="ach-body"><ul class="ach-list">${skeletonRows(6)}</ul></div>
     </div>`, back);
 
-  let list;
-  try { list = await fetchAchievements(appid); }
-  catch (_) {
+  let data;
+  try { data = await cfg.load(); }
+  catch (e) {
     const el = body.querySelector("#ach-body");
-    if (el) el.innerHTML = `<p class="hero-sub">Não foi possível carregar as conquistas. Verifique a internet e tente de novo.</p>`;
+    if (el) el.innerHTML = `<p class="hero-sub">${esc(e && e.userMessage || `Não foi possível carregar ${noun === "troféus" ? "os troféus" : "as conquistas"}. Verifique a internet e tente de novo.`)}</p>`;
     return;
   }
   const el = body.querySelector("#ach-body");
   if (!el) return;
-  if (!list.length) {
-    el.innerHTML = `<p class="hero-sub">Esse jogo não tem conquistas na Steam.</p>`;
-    return;
-  }
-  const done = achDone(appid);
+  const list = data.list || [];
+  const synced = data.synced || new Set();
+  if (!list.length) { el.innerHTML = `<p class="hero-sub">${esc(cfg.emptyText)}</p>`; return; }
+  const manual = cfg.manualKey != null ? achDone(cfg.manualKey) : new Set();
+  const isDone = id => synced.has(id) || manual.has(id);
+  const KIND = { platinum: "Platina", gold: "Ouro", silver: "Prata", bronze: "Bronze" };
+
   const draw = () => {
-    const n = list.filter(a => done.has(a.id)).length;
-    let items = list.filter(a => achFilter === "all" || (achFilter === "done" ? done.has(a.id) : !done.has(a.id)));
-    if (achSort === "rare") items = [...items].sort((a, b) => a.pct - b.pct);
-    if (achSort === "common") items = [...items].sort((a, b) => b.pct - a.pct);
+    const n = list.filter(a => isDone(a.id)).length;
+    let items = list.filter(a => achFilter === "all" || (achFilter === "done" ? isDone(a.id) : !isDone(a.id)));
+    if (achSort === "rare") items = [...items].sort((a, b) => (a.pct ?? 101) - (b.pct ?? 101));
+    if (achSort === "common") items = [...items].sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
     el.innerHTML = `
-      <div class="progress-big"><b>${n}/${list.length}</b><span>conquistas, ${Math.round(n / list.length * 100)}%</span></div>
+      <div class="progress-big"><b>${n}/${list.length}</b><span>${noun}, ${Math.round(n / list.length * 100)}%</span></div>
       <div class="progress-track"><div style="width:${n / list.length * 100}%"></div></div>
+      ${synced.size || cfg.readonly ? `<p class="panel-note" style="margin:10px 0 0">Progresso lido da sua conta ${esc(cfg.source)}.</p>` : ""}
       <div class="chips" style="padding-left:0;padding-right:0" id="ach-filter">
-        ${[["all", "Todas", list.length], ["todo", "Faltando", list.length - n], ["done", "Conquistadas", n]].map(([id, l, c]) =>
+        ${[["all", "Todas", list.length], ["todo", "Faltando", list.length - n], ["done", noun === "troféus" ? "Conquistados" : "Conquistadas", n]].map(([id, l, c]) =>
           `<button class="chip ${achFilter === id ? "is-on" : ""}" data-af="${id}">${l} <span class="count">${c}</span></button>`).join("")}
         ${[["default", "Ordem do jogo"], ["common", "Mais comuns"], ["rare", "Mais raras"]].map(([id, l]) =>
           `<button class="chip ${achSort === id ? "is-on" : ""}" data-as="${id}">${l}</button>`).join("")}
       </div>
       <ul class="ach-list">${items.map(a => {
-        const r = a.pct < 5 ? ["r-ultra", "Ultra rara"] : a.pct < 20 ? ["r-rare", "Rara"] : ["r-common", "Comum"];
-        return `<li><button class="ach ${done.has(a.id) ? "is-done" : ""}" data-a="${esc(a.id)}">
+        const r = a.pct == null ? null : a.pct < 5 ? ["r-ultra", "Ultra rara"] : a.pct < 20 ? ["r-rare", "Rara"] : ["r-common", "Comum"];
+        return `<li><button class="ach ${isDone(a.id) ? "is-done" : ""}" data-a="${esc(a.id)}">
           <div class="ach-icon">${a.icon ? `<img src="${esc(a.icon)}" alt="" loading="lazy">` : ""}</div>
           <div>
             <div class="ach-name">${esc(a.name)}</div>
             ${a.desc ? `<div class="ach-desc">${esc(a.desc)}</div>` : ""}
-            <div class="ach-meta"><span class="rarity ${r[0]}">${r[1]}</span>${a.hidden ? `<span class="rarity r-common">Secreta</span>` : ""}<span>${fmtH(a.pct)}% dos jogadores</span></div>
+            <div class="ach-meta">
+              ${a.kind ? `<span class="rarity kind-${a.kind}">${KIND[a.kind] || a.kind}</span>` : ""}
+              ${r ? `<span class="rarity ${r[0]}">${r[1]}</span>` : ""}
+              ${a.hidden ? `<span class="rarity r-common">Secreta</span>` : ""}
+              ${synced.has(a.id) ? `<span class="rarity r-synced">${esc(cfg.source)}</span>` : ""}
+              ${a.pct != null ? `<span>${fmtH(a.pct)}% dos jogadores</span>` : ""}
+            </div>
           </div>
-          <span class="check" aria-label="Marcar como conquistada">${ICON.check}</span>
+          <span class="check" aria-label="Conquistada">${ICON.check}</span>
         </button></li>`;
       }).join("") || `<p class="hero-sub">Nada aqui ainda.</p>`}</ul>`;
-    updateTracked(appid, title, list.length, n);
+    if (cfg.trackKey != null) updateTracked(cfg.trackKey, cfg.title, list.length, n);
   };
   draw();
   el.addEventListener("click", e => {
     const f = e.target.closest("[data-af]"), s = e.target.closest("[data-as]"), a = e.target.closest("[data-a]");
-    if (f) { achFilter = f.dataset.af; draw(); }
-    else if (s) { achSort = s.dataset.as; draw(); }
-    else if (a) {
-      const id = a.dataset.a;
-      done.has(id) ? done.delete(id) : done.add(id);
-      saveAchDone(appid, done);
-      const y = body.scrollTop;
-      draw();
-      body.scrollTop = y;
-    }
+    if (f) { achFilter = f.dataset.af; draw(); return; }
+    if (s) { achSort = s.dataset.as; draw(); return; }
+    if (!a) return;
+    const id = a.dataset.a;
+    if (synced.has(id)) { toast(`Essa já está desbloqueada na sua conta ${cfg.source}`); return; }
+    if (cfg.manualKey == null) { toast(`O progresso vem direto da sua conta ${cfg.source}`); return; }
+    manual.has(id) ? manual.delete(id) : manual.add(id);
+    saveAchDone(cfg.manualKey, manual);
+    const y = body.scrollTop;
+    draw();
+    body.scrollTop = y;
   });
 }
 
@@ -993,6 +1022,10 @@ function renderSettings() {
   const segBtns = (key, opts) => opts.map(([v, l]) => `<button class="${settings[key] === v ? "is-on" : ""}" data-set="${key}" data-val="${v}">${l}</button>`).join("");
   $("#settings").innerHTML = `
     <div class="group">${profileCardHTML()}</div>
+    <div class="group">
+      <h2 class="group-title">Contas de jogos</h2>
+      <div class="card-list" id="accts">${accountsRowsHTML()}</div>
+    </div>
     <div class="group">
       <h2 class="group-title">Aparência</h2>
       <div class="card-list">
@@ -1087,6 +1120,8 @@ $("#settings").addEventListener("click", e => {
     return;
   }
   if (e.target.closest("#profile-card")) { openProfile(); return; }
+  const acct = e.target.closest("[data-acct]");
+  if (acct) { openAccount(acct.dataset.acct); return; }
   const id = e.target.closest("button")?.id;
   if (id === "s-update") { manualUpdateCheck($("#upd-status")); return; }
   if (id === "s-export") exportBackup();
@@ -1688,6 +1723,394 @@ async function autoUpdateCheck() {
     await startUpdateDownload();
     if (sheet.hidden) openUpdateSheet();
   } catch (_) { /* tenta na próxima abertura */ }
+}
+
+/* =========================================================
+   Contas de jogos: Steam, Xbox (OpenXBL) e PlayStation
+   Os dados de login ficam só neste celular (não vão para a nuvem).
+   ========================================================= */
+let accounts = store.load("backlog.accounts.v1", {});
+const saveAccounts = () => store.save("backlog.accounts.v1", accounts);
+
+/* Requisição completa (cabeçalhos, redirecionamento) pela ponte nativa */
+async function http(method, url, { headers = {}, body = "", follow = true } = {}) {
+  if (Native && Native.httpFull) {
+    return JSON.parse(await callNative("httpFull", method, url, JSON.stringify(headers), body, follow));
+  }
+  const r = await fetch(url, { method, headers, body: body || undefined, redirect: follow ? "follow" : "manual" });
+  return { status: r.status, location: r.headers.get("location") || "", body: await r.text() };
+}
+async function httpJSON(method, url, opts) {
+  const r = await http(method, url, opts);
+  let data = null;
+  try { data = r.body ? JSON.parse(r.body) : null; } catch (_) {}
+  if (r.status < 200 || r.status >= 300) { const e = new Error("HTTP " + r.status); e.status = r.status; e.data = data; throw e; }
+  return data;
+}
+function openLogin(title, startUrl, captureJs, finishUrl, hint) {
+  if (!Native || !Native.openLogin) return Promise.reject(new Error("Disponível só no app instalado"));
+  return callNative("openLogin", title, startUrl, captureJs, finishUrl || "", hint || "");
+}
+const userErr = (msg) => { const e = new Error(msg); e.userMessage = msg; return e; };
+const isoMinutes = d => {
+  const m = String(d || "").match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:([\d.]+)S)?/);
+  return m ? (+m[1] || 0) * 1440 + (+m[2] || 0) * 60 + (+m[3] || 0) + Math.round((+m[4] || 0) / 60) : 0;
+};
+
+/* ---------- Steam ---------- */
+const STEAM_CAPTURE = `
+  if (location.host !== 'steamcommunity.com' || location.pathname.indexOf('/dev/apikey') !== 0) return null;
+  var html = document.documentElement.innerHTML;
+  var sid = (html.match(/g_steamID\\s*=\\s*"(\\d{17})"/) || [])[1];
+  var key = ((document.body.innerText || '').match(/\\b([0-9A-F]{32})\\b/) || [])[1];
+  if (sid && key) return JSON.stringify({ steamid: sid, key: key });
+  var d = document.querySelector('#domain'); if (d && !d.value) d.value = 'backlog.lagaz.app';
+  var a = document.querySelector('#agreeTerms'); if (a) a.checked = true;
+  return null;`;
+async function connectSteam() {
+  const raw = await openLogin("Steam", "https://steamcommunity.com/dev/apikey", STEAM_CAPTURE, "",
+    "Entre na Steam. Se aparecer o formulário, toque em Registrar e confirme no app da Steam. O resto é automático.");
+  const { steamid, key } = JSON.parse(raw);
+  const acc = { steamid, key, name: "", avatar: "" };
+  try {
+    const d = await getJSON(`https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=${key}&steamids=${steamid}`);
+    const p = d.response.players[0];
+    acc.name = p.personaname; acc.avatar = p.avatarfull;
+  } catch (_) {}
+  accounts.steam = acc; saveAccounts();
+}
+async function steamLibrary() {
+  const { key, steamid } = accounts.steam;
+  const d = await getJSON(`https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${key}&steamid=${steamid}&include_appinfo=1&include_played_free_games=1&format=json`);
+  const list = d.response && d.response.games;
+  if (!list) throw userErr("A Steam não mostrou seus jogos. Deixe \"Detalhes dos jogos\" como Público nas configurações de privacidade do seu perfil Steam e tente de novo.");
+  return list.map(g => ({
+    id: String(g.appid), title: g.name, platform: "PC", steamId: g.appid,
+    minutes: g.playtime_forever || 0, last: (g.rtime_last_played || 0) * 1000,
+    covers: [...steamCovers(g.appid), steamHeader(g.appid)]
+  }));
+}
+async function steamUnlocked(appid) {
+  const { key, steamid } = accounts.steam;
+  const d = await getJSON(`https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?key=${key}&steamid=${steamid}&appid=${appid}`);
+  return new Set(((d.playerstats && d.playerstats.achievements) || []).filter(a => a.achieved).map(a => a.apiname));
+}
+
+/* ---------- Xbox (OpenXBL) ---------- */
+const xblHeaders = () => ({ "X-Authorization": accounts.xbox.key, "Accept": "application/json", "Accept-Language": "pt-BR" });
+async function connectXbox(key) {
+  const d = await httpJSON("GET", "https://xbl.io/api/v2/account", { headers: { "X-Authorization": key, "Accept": "application/json" } })
+    .catch(e => { throw userErr(e.status === 401 || e.status === 403 ? "Essa chave não foi aceita pelo OpenXBL. Confira se copiou inteira." : "Não consegui falar com o OpenXBL. Tente de novo."); });
+  const u = (d.profileUsers || [])[0] || {};
+  const setting = id => ((u.settings || []).find(s => s.id === id) || {}).value || "";
+  accounts.xbox = { key, xuid: u.id || "", name: setting("Gamertag"), avatar: setting("GameDisplayPicRaw") };
+  saveAccounts();
+}
+function findStat(obj, name) {
+  if (!obj || typeof obj !== "object") return null;
+  if (obj.name === name && obj.value != null) return Number(obj.value);
+  for (const v of Object.values(obj)) { const r = findStat(v, name); if (r != null) return r; }
+  return null;
+}
+async function xboxLibrary() {
+  const d = await httpJSON("GET", "https://xbl.io/api/v2/player/titleHistory", { headers: xblHeaders() });
+  const titles = (d.titles || []).filter(t => !t.type || t.type === "Game");
+  const items = titles.map(t => {
+    const devs = t.devices || [];
+    const ach = t.achievement || {};
+    return {
+      id: String(t.titleId), title: t.name,
+      platform: devs.length && devs.every(x => /PC|Win32/i.test(x)) ? "PC" : "Xbox",
+      minutes: 0, last: Date.parse((t.titleHistory || {}).lastTimePlayed || "") || 0,
+      covers: t.displayImage ? [t.displayImage] : [],
+      ach: ach.totalAchievements ? { done: ach.currentAchievements || 0, total: ach.totalAchievements } : null,
+      complete: (ach.progressPercentage || 0) >= 100
+    };
+  });
+  // Tempo de jogo: uma consulta por jogo, então só os 25 jogados mais recentemente
+  const recent = [...items].sort((a, b) => b.last - a.last).slice(0, 25);
+  await Promise.allSettled(recent.map(async it => {
+    const s = await httpJSON("GET", `https://xbl.io/api/v2/achievements/stats/${it.id}`, { headers: xblHeaders() });
+    const m = findStat(s, "MinutesPlayed");
+    if (m) it.minutes = m;
+  }));
+  return items;
+}
+async function xboxAchievements(titleId) {
+  const { xuid } = accounts.xbox;
+  let d;
+  try { d = await httpJSON("GET", `https://xbl.io/api/v2/achievements/player/${xuid}/${titleId}`, { headers: xblHeaders() }); }
+  catch (_) { d = await httpJSON("GET", `https://xbl.io/api/v2/achievements/player/${xuid}/title/${titleId}`, { headers: xblHeaders() }); }
+  const synced = new Set();
+  const list = (d.achievements || []).map(a => {
+    if (a.progressState === "Achieved") synced.add(String(a.id));
+    const icon = ((a.mediaAssets || []).find(m => /Icon/i.test(m.type || m.name || "")) || (a.mediaAssets || [])[0] || {}).url || "";
+    const pct = a.rarity && a.rarity.currentPercentage != null ? Number(a.rarity.currentPercentage) : null;
+    return { id: String(a.id), name: a.name, desc: a.progressState === "Achieved" ? a.description : (a.lockedDescription || a.description || ""), icon, pct, hidden: !!a.isSecret };
+  });
+  return { list, synced };
+}
+
+/* ---------- PlayStation ---------- */
+const PSN_AUTH = "https://ca.account.sony.com/api/authz/v3/oauth";
+const PSN_CLIENT = "09515159-7237-4370-9b40-3806e67c0891";
+const PSN_REDIRECT = "com.scee.psxandroid.scecompcall://redirect";
+const PSN_BASIC = "Basic MDk1MTUxNTktNzIzNy00MzcwLTliNDAtMzgwNmU2N2MwODkxOnVjUGprYTV0bnRCMktxc1A=";
+const PSN_CAPTURE = `
+  if (location.host === 'ca.account.sony.com' && location.pathname.indexOf('/api/v1/ssocookie') === 0) {
+    try { var j = JSON.parse(document.body.innerText); if (j.npsso) return JSON.stringify({ npsso: j.npsso }); } catch (e) {}
+    if (!sessionStorage.getItem('bt')) { sessionStorage.setItem('bt', '1'); location.href = 'https://my.playstation.com/'; }
+  }
+  return null;`;
+async function psnTokensFromNpsso(npsso) {
+  const auth = await http("GET", `${PSN_AUTH}/authorize?access_type=offline&client_id=${PSN_CLIENT}&redirect_uri=${encodeURIComponent(PSN_REDIRECT)}&response_type=code&scope=${encodeURIComponent("psn:mobile.v2.core psn:clientapp")}`,
+    { headers: { Cookie: `npsso=${npsso}` }, follow: false });
+  const code = ((auth.location || "").match(/[?&]code=([^&]+)/) || [])[1];
+  if (!code) throw userErr("A PlayStation não liberou o acesso. Entre de novo na sua conta.");
+  return psnToken(`code=${encodeURIComponent(code)}&redirect_uri=${encodeURIComponent(PSN_REDIRECT)}&grant_type=authorization_code&token_format=jwt`);
+}
+async function psnToken(form) {
+  const t = await httpJSON("POST", `${PSN_AUTH}/token`, {
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "Authorization": PSN_BASIC }, body: form
+  });
+  return {
+    access: t.access_token, refresh: t.refresh_token,
+    exp: Date.now() + (t.expires_in || 3600) * 1000,
+    refreshExp: Date.now() + (t.refresh_token_expires_in || 5184000) * 1000
+  };
+}
+async function psnAccess() {
+  const a = accounts.psn;
+  if (Date.now() < a.exp - 60000) return a.access;
+  if (Date.now() > a.refreshExp) throw userErr("O acesso à PlayStation expirou. Conecte a conta de novo em Ajustes.");
+  Object.assign(a, await psnToken(`refresh_token=${encodeURIComponent(a.refresh)}&grant_type=refresh_token&scope=${encodeURIComponent("psn:mobile.v2.core psn:clientapp")}&token_format=jwt`));
+  saveAccounts();
+  return a.access;
+}
+const psnHeaders = async () => ({ Authorization: "Bearer " + await psnAccess(), "Accept-Language": "pt-BR", Accept: "application/json" });
+async function connectPsn() {
+  const raw = await openLogin("PlayStation", "https://ca.account.sony.com/api/v1/ssocookie", PSN_CAPTURE,
+    "https://ca.account.sony.com/api/v1/ssocookie", "Entre na sua conta PlayStation. Depois de entrar, toque em Concluir.");
+  const { npsso } = JSON.parse(raw);
+  accounts.psn = { ...(await psnTokensFromNpsso(npsso)), name: "", avatar: "" };
+  saveAccounts();
+  try {
+    const p = await httpJSON("GET", "https://us-prof.np.community.playstation.net/userProfile/v1/users/me/profile2?fields=onlineId,avatarUrls", { headers: await psnHeaders() });
+    accounts.psn.name = p.profile.onlineId;
+    accounts.psn.avatar = ((p.profile.avatarUrls || []).slice(-1)[0] || {}).avatarUrl || "";
+    saveAccounts();
+  } catch (_) {}
+}
+async function psnLibrary() {
+  const h = await psnHeaders();
+  const titles = [];
+  for (let offset = 0; offset < 2000;) {
+    const d = await httpJSON("GET", `https://m.np.playstation.com/api/gamelist/v2/users/me/titles?categories=ps4_game,ps5_native_game&limit=200&offset=${offset}`, { headers: h });
+    titles.push(...(d.titles || []));
+    if (!d.nextOffset) break;
+    offset = d.nextOffset;
+  }
+  let trophies = [];
+  try { trophies = (await httpJSON("GET", "https://m.np.playstation.com/api/trophy/v1/users/me/trophyTitles?limit=800", { headers: h })).trophyTitles || []; } catch (_) {}
+  const byName = new Map(trophies.map(t => [norm(t.trophyTitleName), t]));
+  const items = titles.map(t => {
+    const name = t.localizedName || t.name;
+    const tr = byName.get(norm(name)) || byName.get(norm(t.name));
+    if (tr) byName.delete(norm(tr.trophyTitleName));
+    return psnItem(t.titleId, name, t.localizedImageUrl || t.imageUrl, isoMinutes(t.playDuration), Date.parse(t.lastPlayedDateTime || "") || 0, tr);
+  });
+  // Jogos que só aparecem nos troféus (PS3, Vita…)
+  byName.forEach(tr => items.push(psnItem(tr.npCommunicationId, tr.trophyTitleName, tr.trophyTitleIconUrl, 0, Date.parse(tr.lastUpdatedDateTime || "") || 0, tr)));
+  return items;
+}
+function psnItem(id, title, img, minutes, last, tr) {
+  const sum = o => o ? (o.bronze || 0) + (o.silver || 0) + (o.gold || 0) + (o.platinum || 0) : 0;
+  return {
+    id: String(id), title, platform: "PlayStation", minutes, last, covers: img ? [img] : [],
+    npId: tr ? tr.npCommunicationId : "", svc: tr ? tr.npServiceName : "",
+    ach: tr ? { done: sum(tr.earnedTrophies), total: sum(tr.definedTrophies) } : null,
+    complete: tr ? tr.progress >= 100 : false
+  };
+}
+async function psnTrophies(npId, svc) {
+  const h = await psnHeaders();
+  const q = `trophyGroups/all/trophies?npServiceName=${svc || "trophy"}`;
+  const [defs, mine] = await Promise.all([
+    httpJSON("GET", `https://m.np.playstation.com/api/trophy/v1/npCommunicationIds/${npId}/${q}`, { headers: h }),
+    httpJSON("GET", `https://m.np.playstation.com/api/trophy/v1/users/me/npCommunicationIds/${npId}/${q}`, { headers: h })
+  ]);
+  const earned = new Map((mine.trophies || []).map(t => [t.trophyId, t]));
+  const synced = new Set();
+  const list = (defs.trophies || []).map(t => {
+    const e = earned.get(t.trophyId) || {};
+    if (e.earned) synced.add(String(t.trophyId));
+    return { id: String(t.trophyId), name: t.trophyName, desc: t.trophyDetail || "", icon: t.trophyIconUrl, kind: t.trophyType,
+      hidden: !!t.trophyHidden, pct: e.trophyEarnedRate != null ? Number(e.trophyEarnedRate) : null };
+  });
+  return { list, synced };
+}
+
+/* ---------- Importar para a biblioteca ---------- */
+const PLATFORM_INFO = {
+  steam: { name: "Steam", color: "#1b2838", library: () => steamLibrary() },
+  xbox: { name: "Xbox", color: "#107C10", library: () => xboxLibrary() },
+  psn: { name: "PlayStation", color: "#0070D1", library: () => psnLibrary() }
+};
+async function importFrom(src, onlyPlayed) {
+  const items = await PLATFORM_INFO[src].library();
+  let added = 0, updated = 0;
+  const month = 30 * 24 * 3600 * 1000;
+  items.forEach(it => {
+    if (!it.title) return;
+    if (onlyPlayed && !it.minutes && !(it.ach && it.ach.done)) return;
+    const info = { id: it.id, minutes: it.minutes, last: it.last, ach: it.ach || null, npId: it.npId || "", svc: it.svc || "" };
+    const hours = it.minutes ? Math.round(it.minutes / 6) / 10 : 0;
+    let g = games.find(x => (x.sources && x.sources[src] && x.sources[src].id === it.id) || norm(x.title) === norm(it.title));
+    if (g) {
+      g.sources = { ...(g.sources || {}), [src]: info };
+      if (hours > (parseFloat(g.hours) || 0)) g.hours = String(hours);
+      if (!g.steamId && it.steamId) g.steamId = it.steamId;
+      if (it.complete && g.status !== "done") g.status = "done";
+      g.updatedAt = Date.now();
+      updated++;
+    } else {
+      games.push({
+        id: "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        title: it.title, year: "", wiki: "", steamId: it.steamId || null,
+        cover: "", coverRemote: it.covers[0] || "", coverAlts: it.covers.slice(1),
+        platform: it.platform, status: it.complete ? "done" : (it.last && Date.now() - it.last < month ? "playing" : "backlog"),
+        rating: 0, review: "", hours: hours ? String(hours) : "", sources: { [src]: info },
+        addedAt: Date.now(), updatedAt: Date.now()
+      });
+      added++;
+    }
+  });
+  accounts[src].lastImport = Date.now();
+  accounts[src].count = items.length;
+  saveAccounts();
+  saveGames();
+  renderLibrary();
+  ensureCovers();
+  return { added, updated, total: items.length };
+}
+
+/* Abre conquistas/troféus de um jogo da biblioteca pela melhor fonte disponível */
+function openGameAchievements(game, back) {
+  const s = game.sources || {};
+  if (s.psn && s.psn.npId && accounts.psn) {
+    return openAchSheet({ title: game.title, banner: game.coverRemote, source: "PlayStation", noun: "troféus", readonly: true,
+      emptyText: "Esse jogo não tem troféus.", load: () => psnTrophies(s.psn.npId, s.psn.svc) }, back);
+  }
+  if (s.xbox && accounts.xbox) {
+    return openAchSheet({ title: game.title, banner: game.coverRemote, source: "Xbox", readonly: true,
+      emptyText: "Esse jogo não tem conquistas no Xbox.", load: () => xboxAchievements(s.xbox.id) }, back);
+  }
+  return openAchievementsFor(game.title, game.steamId || (findPopular(game.title, game.wiki) || {}).steam, back);
+}
+
+/* ---------- Tela "Contas de jogos" ---------- */
+const PLATFORM_LOGO = {
+  steam: '<svg viewBox="0 0 24 24"><circle cx="15.5" cy="8.5" r="3.2"/><circle cx="8" cy="15.5" r="2.2"/><path d="M3 12.5l4.2 1.8M10 16.3l3.6-5"/></svg>',
+  xbox: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M6.5 6.2C9 7.5 11 9.8 12 11.3c1-1.5 3-3.8 5.5-5.1M5.6 18c1.7-3 4-5.6 6.4-7 2.4 1.4 4.7 4 6.4 7"/></svg>',
+  psn: '<svg viewBox="0 0 24 24"><path d="M9.5 4v15l3 1V7.2c0-.8.5-1.2 1-1 .7.2.8.9.8 1.6v5c2 .9 3.6 0 3.6-2.6 0-2.7-.9-3.9-3.7-4.8C12.7 4.7 11 4.3 9.5 4z"/><path d="M14 16.2l4.5-1.6c.6-.2.6-.6 0-.8-.6-.2-1.6-.2-2.3.1L14 14.6M9 15.5l-3.7 1.3c-.6.2-.7.6 0 .8.7.3 1.8.3 2.6 0L9 17.3"/></svg>'
+};
+function accountsRowsHTML() {
+  return ["steam", "xbox", "psn"].map(src => {
+    const a = accounts[src];
+    const info = PLATFORM_INFO[src];
+    const desc = a ? `${esc(a.name || "Conectado")}${a.lastImport ? `, ${a.count} jogos, importado ${relTime(a.lastImport)}` : ", ainda não importou"}` : "Não conectado";
+    return `<div class="setting"><button class="setting-btn" data-acct="${src}">
+      <span class="plat-logo" style="background:${info.color}">${PLATFORM_LOGO[src]}</span>
+      <div style="flex:1;min-width:0"><div class="setting-name">${info.name}</div><div class="setting-desc">${desc}</div></div>
+      ${a ? `<span class="tag">Conectado</span>` : `<span class="row-chev">${ICON.chev}</span>`}
+    </button></div>`;
+  }).join("");
+}
+function openAccount(src) {
+  const a = accounts[src];
+  const info = PLATFORM_INFO[src];
+  const how = {
+    steam: "Você entra na sua conta Steam aqui dentro do app. O app cria uma chave pessoal da API da Steam (a Steam pede para confirmar no app dela) e lê seus jogos, horas jogadas e conquistas. Para funcionar, seus \"Detalhes dos jogos\" precisam estar públicos na privacidade do perfil Steam.",
+    xbox: "A Microsoft não libera acesso direto para apps como este, então usamos o OpenXBL, um serviço gratuito. Toque em Abrir OpenXBL, entre com sua conta Microsoft, crie uma chave de API (API Keys, botão Create) e cole aqui embaixo.",
+    psn: "Você entra na sua conta PlayStation aqui dentro do app e o app pega o acesso sozinho. Ele lê seus jogos de PS4 e PS5, as horas jogadas e os troféus. O acesso vale por uns dois meses; depois é só conectar de novo."
+  }[src];
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${ICON.back}</button></div>
+    <div class="acct-head">
+      <span class="plat-logo big" style="background:${info.color}">${PLATFORM_LOGO[src]}</span>
+      <h2 class="hero-title">${info.name}</h2>
+      ${a ? `<div class="acct-user">${a.avatar ? `<img src="${esc(a.avatar)}" alt="">` : ""}<span>${esc(a.name || "Conta conectada")}</span></div>` : ""}
+    </div>
+    ${a ? `
+      <div class="panel">
+        <span class="field-label">Importar jogos</span>
+        <p class="panel-note" style="margin:0 0 12px">Traz seus jogos para a biblioteca com as horas jogadas. Jogos que já estão lá ganham as horas e o progresso de ${src === "psn" ? "troféus" : "conquistas"}, sem perder sua nota e análise.</p>
+        <div class="segmented" style="margin:0 0 12px" id="imp-mode">
+          <button class="is-on" data-v="played">Só os que joguei</button><button data-v="all">Todos</button>
+        </div>
+        <button class="btn btn-primary" id="acct-import" style="width:100%">Importar agora</button>
+        <p class="panel-note" id="acct-msg" ${a.lastImport ? "" : "hidden"}>${a.lastImport ? `Última importação ${relTime(a.lastImport)}: ${a.count} jogos encontrados.` : ""}</p>
+      </div>
+      <div class="actions"><button class="btn btn-danger" id="acct-out">Desconectar ${info.name}</button></div>`
+    : `
+      <p class="hero-sub" style="margin-top:14px">${how}</p>
+      <div class="actions">
+        ${src === "xbox" ? `
+          <button class="btn btn-ghost" id="xbl-open">Abrir OpenXBL</button>
+          <input class="text-input" id="xbl-key" placeholder="Cole aqui a chave do OpenXBL" autocomplete="off">
+          <button class="btn btn-primary" id="acct-connect">Conectar Xbox</button>`
+        : `<button class="btn btn-primary" id="acct-connect">Entrar com ${info.name}</button>`}
+        <p class="form-error" id="acct-err" hidden></p>
+      </div>
+      <p class="panel-note">A chave e o acesso ficam guardados só neste celular. Nada disso vai para a nuvem do app.</p>`}`,
+    () => { closeSheet(); if (currentView === "settings") renderSettings(); });
+
+  const on = (id, fn) => { const el = body.querySelector(id); if (el) el.addEventListener("click", fn); };
+  const showErr = m => { const el = body.querySelector("#acct-err"); if (el) { el.textContent = m; el.hidden = !m; } };
+  on("#xbl-open", () => openLogin("OpenXBL", "https://xbl.io/", "return null;", "", "Entre com a conta Microsoft, abra API Keys e toque em Create. Copie a chave e feche esta tela.").catch(() => {}));
+  on("#acct-connect", async e => {
+    const b = e.currentTarget; b.disabled = true; showErr("");
+    try {
+      if (src === "steam") await connectSteam();
+      else if (src === "psn") await connectPsn();
+      else {
+        const key = body.querySelector("#xbl-key").value.trim();
+        if (!key) throw userErr("Cole a chave do OpenXBL primeiro.");
+        await connectXbox(key);
+      }
+      toast(`${info.name} conectado`);
+      openAccount(src);
+    } catch (err) {
+      const m = String(err && err.message);
+      if (!m.includes("cancelado")) showErr(err.userMessage || `Não deu para conectar agora. Tente de novo.`);
+      b.disabled = false;
+    }
+  });
+  let mode = "played";
+  const seg = body.querySelector("#imp-mode");
+  if (seg) seg.addEventListener("click", e => {
+    const b = e.target.closest("[data-v]"); if (!b) return;
+    mode = b.dataset.v; seg.querySelectorAll("button").forEach(x => x.classList.toggle("is-on", x === b));
+  });
+  on("#acct-import", async e => {
+    const b = e.currentTarget, msg = body.querySelector("#acct-msg");
+    b.disabled = true; b.textContent = "Importando…";
+    try {
+      const r = await importFrom(src, mode === "played");
+      msg.hidden = false;
+      msg.textContent = `${r.total} jogos encontrados. ${r.added} ${r.added === 1 ? "novo entrou" : "novos entraram"} na biblioteca e ${r.updated} ${r.updated === 1 ? "foi atualizado" : "foram atualizados"}.`;
+      toast("Importação concluída");
+    } catch (err) {
+      msg.hidden = false;
+      msg.textContent = err.userMessage || "A importação falhou. Confira a internet e tente de novo.";
+    }
+    b.disabled = false; b.textContent = "Importar de novo";
+  });
+  on("#acct-out", () => {
+    delete accounts[src]; saveAccounts();
+    toast(`${info.name} desconectado. Os jogos importados continuam na biblioteca.`);
+    openAccount(src);
+  });
 }
 
 /* Botão voltar do Android */
