@@ -1,0 +1,11 @@
+owned.json 401 https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?steamid=76561197960435530&include_appinfo=1
+recent.json 403 https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v1/?steamid=76561197960435530
+games_xml.xml 200 https://steamcommunity.com/login/?redir=https%3A%2F%2Fsteamcommunity.com%2Fprofiles%2F76561197960435530%2Fgames%3Fxml%3D1
+games_page.html 200 https://steamcommunity.com/login/?redir=https%3A%2F%2Fsteamcommunity.com%2Fprofiles%2F76561197960435530%2Fgames%2F%3Ftab%3Dall
+profile.xml 200 https://steamcommunity.com/profiles/76561197960435530/?xml=1
+ach_xml.xml 200 https://steamcommunity.com/id/robinwalker/achievements/440
+ach_page.html 200 https://steamcommunity.com/id/robinwalker/achievements/440
+ach_new.html 200 https://steamcommunity.com/id/robinwalker/achievements/440
+playerach.json 400 https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?steamid=76561197960435530&appid=440
+topach.json 401 https://api.steampowered.com/IPlayerService/GetTopAchievementsForGames/v1/?steamid=76561197960435530&appids%5B0%5D=440&max_achievements=5
+openid.html 200 https://steamcommunity.com/
