@@ -22,13 +22,26 @@ jobs:
       - name: Aceitar licenças do Android SDK
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
+      - name: Preparar a chave de assinatura
+        env:
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+        run: |
+          if [ -z "$KEYSTORE_PASS" ]; then
+            echo "::error::Falta o segredo KEYSTORE_PASS em Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in app/release.jks.enc -out app/release.jks -pass env:KEYSTORE_PASS
+
       - name: Compilar APK
+        env:
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
         run: |
           chmod +x gradlew
           N=${{ github.run_number }}
-          echo "window.APP_VERSION = { tag: \"v1.4.$N\", build: $N };" > app/src/main/assets/www/version.js
-          ./gradlew --no-daemon assembleRelease -Pvc=$N -Pvn=1.4.$N
+          echo "window.APP_VERSION = { tag: \"v1.5.$N\", build: $N };" > app/src/main/assets/www/version.js
+          ./gradlew --no-daemon assembleRelease -Pvc=$N -Pvn=1.5.$N
           cp app/build/outputs/apk/release/app-release.apk Backlog.apk
+          rm -f app/release.jks
 
       - name: Guardar o APK nos artefatos
         uses: actions/upload-artifact@v4
@@ -40,7 +53,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.4.${{ github.run_number }}
-          name: Backlog 1.4.${{ github.run_number }}
+          tag_name: v1.5.${{ github.run_number }}
+          name: Backlog 1.5.${{ github.run_number }}
           files: Backlog.apk
           body: ${{ github.event.head_commit.message }}

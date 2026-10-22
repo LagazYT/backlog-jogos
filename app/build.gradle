@@ -14,19 +14,27 @@ android {
         versionName((project.findProperty('vn') ?: '1.3').toString())
     }
 
+    // A chave de assinatura nunca fica no repositório em texto puro.
+    // O GitHub Actions decripta app/release.jks.enc com o segredo KEYSTORE_PASS.
+    def keystorePass = System.getenv('KEYSTORE_PASS')
+    def releaseKey = file('release.jks')
+
     signingConfigs {
         release {
-            storeFile file('backlog.keystore')
-            storePassword 'backlog123'
-            keyAlias 'backlog'
-            keyPassword 'backlog123'
+            if (keystorePass && releaseKey.exists()) {
+                storeFile releaseKey
+                storePassword keystorePass
+                keyAlias 'backlog'
+                keyPassword keystorePass
+            }
         }
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig signingConfigs.release
+            // Sem a senha (build local), assina com a chave de debug do próprio Android Studio
+            signingConfig (keystorePass && releaseKey.exists()) ? signingConfigs.release : signingConfigs.debug
         }
     }
 

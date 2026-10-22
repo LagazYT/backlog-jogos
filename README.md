@@ -95,7 +95,9 @@ app/src/main/
     └── firebase-config.js                     ← chaves públicas do Firebase
 ```
 
-**Compilar:** todo push na `main` gera o APK sozinho pelo GitHub Actions e publica em Releases. Se preferir no PC: abre no Android Studio, ou roda `./gradlew assembleRelease`.
+**Compilar:** todo push na `main` gera o APK sozinho pelo GitHub Actions e publica em Releases. Se preferir no PC: abre no Android Studio, ou roda `./gradlew assembleRelease` (sem a senha, sai assinado com a chave de teste).
+
+**Assinatura:** a chave que assina o APK fica no repositório só criptografada (`app/release.jks.enc`). A senha mora no segredo `KEYSTORE_PASS` do GitHub Actions e nunca aparece no código.
 
 **Atualizar os prints deste README:** manda um push pra branch `screenshots` e o workflow tira tudo de novo com dados reais.
 

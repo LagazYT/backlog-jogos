@@ -2167,7 +2167,14 @@ function openAccount(src) {
   });
   on("#acct-out", () => {
     delete accounts[src]; saveAccounts();
-    toast(`${info.name} desconectado. Os jogos importados continuam na biblioteca.`);
+    // Apaga também a sessão do site guardada na tela de login
+    const SESSION_HOSTS = {
+      steam: "store.steampowered.com,steamcommunity.com,login.steampowered.com,help.steampowered.com,api.steampowered.com",
+      xbox: "login.live.com,account.live.com,login.microsoftonline.com,account.microsoft.com,www.xbox.com",
+      psn: "ca.account.sony.com,my.account.sony.com,id.sonyentertainmentnetwork.com,my.playstation.com,www.playstation.com"
+    };
+    try { Native && Native.clearSession && Native.clearSession(SESSION_HOSTS[src]); } catch (_) {}
+    toast(`${info.name} desconectado e sessão apagada. Os jogos importados continuam na biblioteca.`);
     openAccount(src);
   });
 }

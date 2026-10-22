@@ -561,6 +561,31 @@ public class MainActivity extends Activity {
             });
         }
 
+        /** Apaga a sessão salva (cookies) dos sites informados, separados por vírgula. */
+        @JavascriptInterface
+        public void clearSession(final String hostsCsv) {
+            runOnUiThread(() -> {
+                CookieManager cm = CookieManager.getInstance();
+                for (String host : hostsCsv.split(",")) {
+                    String h = host.trim();
+                    if (h.isEmpty()) continue;
+                    String url = "https://" + h;
+                    String all = cm.getCookie(url);
+                    if (all == null) continue;
+                    String parent = h.indexOf('.') != h.lastIndexOf('.') ? h.substring(h.indexOf('.')) : "." + h;
+                    for (String part : all.split(";")) {
+                        String name = part.split("=", 2)[0].trim();
+                        if (name.isEmpty()) continue;
+                        String gone = name + "=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/";
+                        cm.setCookie(url, gone);
+                        cm.setCookie(url, gone + "; Domain=" + h);
+                        cm.setCookie(url, gone + "; Domain=" + parent);
+                    }
+                }
+                cm.flush();
+            });
+        }
+
         @JavascriptInterface
         public void deleteFile(String fileUri) {
             try {

@@ -5,3 +5,8 @@ local.properties
 *.iml
 .idea/
 Backlog.apk
+
+# Chaves de assinatura em texto puro nunca entram no repositório
+*.jks
+*.keystore
+!app/release.jks.enc
