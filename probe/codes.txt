@@ -1,0 +1,8 @@
+steam_token 200
+owned_badtoken 401
+live 200 
+xboxauth 401
+psn_ssocookie 400
+{"success":1,"data":[]}
+<html><head><title>Unauthorized</title></head><body><h1>Unauthorized</h1>Access is denied. Retrying will not help. Please verify your <pre>key=</pre> parameter.</body></html>
+{"error":"invalid_grant","error_description":"Invalid login","error_code":20,"docs":"https://auth.api.sonyentertainmentnetwork.com/docs/","parameters":[]}

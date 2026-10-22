@@ -1,0 +1,32 @@
+HTTP/1.1 200 OK
+Cache-Control: no-store, no-cache
+Pragma: no-cache
+Content-Type: text/html; charset=utf-8
+Expires: Thu, 22 Oct 2026 17:26:32 GMT
+P3P: CP="DSP CUR OTPi IND OTRi ONL FIN"
+X-Frame-Options: deny
+X-DNS-Prefetch-Control: on
+Link: <https://logincdn.msftauth.net>; rel=preconnect; crossorigin
+Link: <https://acctcdn.msauth.net>; rel=preconnect; crossorigin
+Link: <https://acctcdn.msftauth.net>; rel=preconnect; crossorigin
+Link: <https://acctcdn.msauth.net/>; rel=dns-prefetch
+Link: <https://acctcdn.msftauth.net/>; rel=dns-prefetch
+Link: <https://acctcdnmsftuswe2.azureedge.net/>; rel=dns-prefetch
+Link: <https://logincdn.msauth.net/>; rel=dns-prefetch
+Link: <https://logincdn.msftauth.net/>; rel=dns-prefetch
+Link: <https://lgincdnmsftuswe2.azureedge.net/>; rel=dns-prefetch
+Content-Security-Policy: object-src 'none'; base-uri 'self'; script-src 'self' 'nonce-CxnYb1DrkL3bBi8JGw5EiyZ6gmXh6UE5RkDv6rqZRAU=' https://js.monitor.azure.com https://logincdn.msauth.net https://logincdn.msftauth.net https://lgincdnvzeuno.azureedge.net https://lgincdnmsftuswe2.azureedge.net https://*.live.com https://*.microsoft.com https://*.office.net https://*.bing.com https://*.sharepointonline.com 'report-sample'; img-src 'self' https://js.monitor.azure.com https://logincdn.msauth.net https://logincdn.msftauth.net https://lgincdnvzeuno.azureedge.net https://lgincdnmsftuswe2.azureedge.net https://*.live.com https://*.microsoft.com https://*.office.net https://*.bing.com https://*.sharepointonline.com; report-uri https://csp.microsoft.com/report/MSA-UX-All
+Referrer-Policy: strict-origin-when-cross-origin
+x-ms-route-info: C543_BAY
+x-ms-request-id: affe0e00-07ea-494a-ab6f-caf9a536d032
+PPServer: PPV: 30 H: PH1PEPF0005E67B V: 0
+X-Content-Type-Options: nosniff
+Strict-Transport-Security: max-age=31536000
+X-XSS-Protection: 1; mode=block
+Set-Cookie: MSPRequ=id=N&lt=1792690052&co=1; domain=login.live.com; Secure; path=/; SameSite=None; HttpOnly
+Set-Cookie: uaid=27f250c698f1461b83a9db34b08b4eb9; domain=login.live.com; Secure; path=/; SameSite=None; HttpOnly
+Set-Cookie: MSPOK=$uuid-d0f204ca-1a61-40e4-a64c-dd62eded5777; domain=login.live.com; Secure; path=/; SameSite=None; HttpOnly
+Set-Cookie: OParams=11O.DrBr8Hi3!RbFnXn4kyk*obVUPH89sDZTgEHMog1cqknGx0!OEHYARMCP1kTLIYrCoHw1WvWhip8M6suk2ACCqOSPQ9hSG9RD1m6YnJMFEm*ZsAPOLKEaIbE7AwQEsTpMl32Qy9*ZDp1HiRA1yOuk9voC0fAWESWE9Qx3pFGB118UvSqQM9xiBO6WSv!*N7Yobm!jzBxBqveIpcCQHB6p0YANtP6uTUNvqjqBglc0VVzzRW9iRv2DnyqXdCjGZ3DM9s5b6vsk528hPmrsZ3VsnoAkhfnedLJ9srrqjJMuilux4!jxPOIUHcRvl5FzmIsa22uXgsFBZGJN2jWHCurzwQL8qKBkTsR5mmIJrUgDmzmxNgrNcJgVrCKHdg4PkJyV3MJqfkevGz3ZIFKmpgEflYGFVCLfqFkGZg*!WE!on1eAjJwmfaOrMW!r!2GSNCJ5f!6ykekYkZ7vp!Re!Hb!B5Dsdrt1nZP6t6e696TYUYPP; domain=login.live.com; Secure; path=/; SameSite=None; HttpOnly
+Date: Thu, 22 Oct 2026 17:27:31 GMT
+Content-Length: 30806
+
