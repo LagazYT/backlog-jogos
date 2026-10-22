@@ -1,13 +1,12 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-mode="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="theme-color" content="#161922">
 <title>Backlog</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -15,67 +14,96 @@
 
   <!-- Biblioteca -->
   <section class="view is-active" id="view-library" aria-label="Biblioteca">
-    <header class="head">
-      <h1 class="display">Biblioteca</h1>
-      <p class="summary" id="lib-summary"></p>
+    <header class="top">
+      <h1 class="title">Biblioteca</h1>
+      <span class="top-meta" id="lib-count"></span>
     </header>
-    <div class="chips" id="lib-filters" role="tablist"></div>
+    <div id="lib-overview"></div>
+    <div id="lib-playing"></div>
+    <div class="chips" id="lib-filters"></div>
     <div class="shelf" id="lib-grid"></div>
     <div class="empty" id="lib-empty" hidden>
+      <div class="empty-art" aria-hidden="true"><span></span><span></span><span></span></div>
       <p class="empty-title">Sua estante está vazia</p>
-      <p class="empty-text">Busque um jogo pelo nome e adicione à biblioteca. A capa é baixada e guardada no celular.</p>
+      <p class="empty-text">Busque um jogo pelo nome e adicione. A capa é salva no celular e aparece mesmo sem internet.</p>
       <button class="btn btn-primary" data-goto="search">Buscar um jogo</button>
     </div>
   </section>
 
   <!-- Buscar -->
   <section class="view" id="view-search" aria-label="Buscar">
-    <header class="head">
-      <h1 class="display">Buscar</h1>
-    </header>
+    <header class="top"><h1 class="title">Buscar</h1></header>
     <form class="searchbar" id="search-form" autocomplete="off">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input id="search-input" type="search" placeholder="Nome do jogo" enterkeyhint="search">
     </form>
     <div id="search-status" class="status-line"></div>
-    <ul class="results" id="search-results"></ul>
+    <ul class="rows" id="search-results"></ul>
   </section>
 
-  <!-- Tempo para zerar -->
-  <section class="view" id="view-hltb" aria-label="Tempo para zerar">
-    <header class="head">
-      <h1 class="display">Quanto tempo leva</h1>
-      <p class="summary">Média de horas para zerar os single player mais jogados.</p>
-    </header>
-    <div class="chips" id="hltb-sort"></div>
-    <div class="legend">
-      <span><i class="dot d-main"></i>História</span>
-      <span><i class="dot d-extra"></i>+ Extras</span>
-      <span><i class="dot d-full"></i>100%</span>
+  <!-- Explorar: em alta + tempo para zerar -->
+  <section class="view" id="view-explore" aria-label="Explorar">
+    <header class="top"><h1 class="title">Explorar</h1></header>
+    <div class="segmented" id="explore-seg" role="tablist">
+      <button class="is-on" data-seg="trending" role="tab">Em alta agora</button>
+      <button data-seg="hltb" role="tab">Tempo pra zerar</button>
     </div>
-    <ol class="hltb-list" id="hltb-list"></ol>
-    <p class="footnote">Valores aproximados, arredondados em horas, com base nas médias da comunidade.</p>
+    <div id="explore-trending">
+      <p class="lede">Single player com mais gente jogando neste momento na Steam.</p>
+      <ol class="rows" id="trending-list"></ol>
+    </div>
+    <div id="explore-hltb" hidden>
+      <p class="lede">Média de horas que a comunidade leva para zerar.</p>
+      <div class="chips" id="hltb-sort"></div>
+      <ol class="hltb" id="hltb-list"></ol>
+      <p class="footnote">Valores aproximados, arredondados em horas.</p>
+    </div>
+  </section>
+
+  <!-- Conquistas -->
+  <section class="view" id="view-ach" aria-label="Conquistas">
+    <header class="top"><h1 class="title">Conquistas</h1></header>
+    <form class="searchbar" id="ach-form" autocomplete="off">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="ach-input" type="search" placeholder="Buscar jogo da Steam" enterkeyhint="search">
+    </form>
+    <div id="ach-status" class="status-line"></div>
+    <ul class="rows" id="ach-results"></ul>
+    <div id="ach-tracked"></div>
+  </section>
+
+  <!-- Ajustes -->
+  <section class="view" id="view-settings" aria-label="Ajustes">
+    <header class="top"><h1 class="title">Ajustes</h1></header>
+    <div id="settings"></div>
   </section>
 </main>
 
 <nav class="tabbar" aria-label="Navegação">
   <button class="tab is-active" data-view="library">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="5" height="16" rx="1"/><rect x="10.5" y="4" width="5" height="16" rx="1"/><path d="m17.6 5.2 3 14.4"/></svg>
+    <span class="tab-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="5" height="16" rx="1.2"/><rect x="10.5" y="4" width="5" height="16" rx="1.2"/><path d="m17.6 5.2 3 14.4"/></svg></span>
     <span>Biblioteca</span>
   </button>
   <button class="tab" data-view="search">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <span class="tab-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
     <span>Buscar</span>
   </button>
-  <button class="tab" data-view="hltb">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9.5 2.5h5"/></svg>
-    <span>Tempo</span>
+  <button class="tab" data-view="explore">
+    <span class="tab-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l5.5-5.5 4 4L21 7"/><path d="M15 7h6v6"/></svg></span>
+    <span>Explorar</span>
+  </button>
+  <button class="tab" data-view="ach">
+    <span class="tab-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H4.5a3.5 3.5 0 0 0 3.6 4M16 6h3.5a3.5 3.5 0 0 1-3.6 4M12 13v4M8.5 20h7"/></svg></span>
+    <span>Conquistas</span>
+  </button>
+  <button class="tab" data-view="settings">
+    <span class="tab-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></span>
+    <span>Ajustes</span>
   </button>
 </nav>
 
-<!-- Folha de detalhe / edição -->
 <div class="sheet" id="sheet" hidden>
-  <div class="sheet-scrim" data-close></div>
+  <div class="sheet-scrim"></div>
   <article class="sheet-body" id="sheet-body" role="dialog" aria-modal="true"></article>
 </div>
 

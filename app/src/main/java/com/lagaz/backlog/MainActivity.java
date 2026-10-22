@@ -3,6 +3,7 @@ package com.lagaz.backlog;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.net.Uri;
@@ -33,7 +34,7 @@ public class MainActivity extends Activity {
 
     private static final String USER_AGENT = "BacklogApp/1.0 (Android; app pessoal de backlog de jogos)";
     private WebView web;
-    private final ExecutorService pool = Executors.newFixedThreadPool(4);
+    private final ExecutorService pool = Executors.newFixedThreadPool(6);
     private File coverDir;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -73,6 +74,12 @@ public class MainActivity extends Activity {
         });
         web.loadUrl("file:///android_asset/www/index.html");
         setContentView(web);
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        web.evaluateJavascript("window.__onSystemTheme && window.__onSystemTheme()", null);
     }
 
     @SuppressWarnings("deprecation")
@@ -126,7 +133,10 @@ public class MainActivity extends Activity {
             pool.submit(() -> {
                 try {
                     HttpURLConnection c = open(url);
-                    c.setRequestProperty("Accept", "application/json");
+                    c.setRequestProperty("Accept", "application/json, text/html;q=0.9, */*;q=0.8");
+                    if (url.contains("steamcommunity.com") || url.contains("steampowered.com")) {
+                        c.setRequestProperty("Cookie", "birthtime=470682001; lastagecheckage=1-0-1985; wants_mature_content=1");
+                    }
                     int code = c.getResponseCode();
                     if (code < 200 || code >= 300) { reply(id, false, "HTTP " + code); return; }
                     reply(id, true, new String(readAll(c.getInputStream()), StandardCharsets.UTF_8));
@@ -167,6 +177,54 @@ public class MainActivity extends Activity {
                     reply(id, false, String.valueOf(e.getMessage()));
                 }
             });
+        }
+
+        @JavascriptInterface
+        public boolean isSystemDark() {
+            int m = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+            return m == Configuration.UI_MODE_NIGHT_YES;
+        }
+
+        /** Cor das barras do sistema e ícones claros/escuros conforme o tema. */
+        @JavascriptInterface
+        public void setBars(final String color, final boolean lightBackground) {
+            runOnUiThread(() -> {
+                try {
+                    int c = Color.parseColor(color);
+                    Window w = getWindow();
+                    w.setStatusBarColor(c);
+                    w.setNavigationBarColor(c);
+                    web.setBackgroundColor(c);
+                    View d = w.getDecorView();
+                    int flags = d.getSystemUiVisibility();
+                    int light = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                    d.setSystemUiVisibility(lightBackground ? (flags | light) : (flags & ~light));
+                } catch (Exception ignored) { }
+            });
+        }
+
+        @JavascriptInterface
+        public void share(final String text, final String title) {
+            runOnUiThread(() -> {
+                Intent i = new Intent(Intent.ACTION_SEND);
+                i.setType("text/plain");
+                i.putExtra(Intent.EXTRA_SUBJECT, title);
+                i.putExtra(Intent.EXTRA_TEXT, text);
+                startActivity(Intent.createChooser(i, title));
+            });
+        }
+
+        @JavascriptInterface
+        public void clearCovers(String prefix) {
+            File[] files = coverDir.listFiles();
+            if (files == null) return;
+            String p = safeName(prefix);
+            for (File f : files) {
+                if (f.getName().startsWith(p)) {
+                    //noinspection ResultOfMethodCallIgnored
+                    f.delete();
+                }
+            }
         }
 
         @JavascriptInterface
