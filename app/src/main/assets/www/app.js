@@ -53,7 +53,7 @@ const store = {
   save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} }
 };
 const SETTINGS_KEY = "backlog.settings.v1";
-const DEFAULTS = { mode: "dark", theme: "arcade", defaultPlatform: "", sort: "recent", achLang: "brazilian" };
+const DEFAULTS = { mode: "dark", theme: "arcade", defaultPlatform: "", sort: "recent", achLang: "brazilian", autoUpdate: "on" };
 let settings = { ...DEFAULTS, ...store.load(SETTINGS_KEY, {}) };
 const saveSettings = () => store.save(SETTINGS_KEY, settings);
 
@@ -1040,6 +1040,23 @@ function renderSettings() {
     </div>
 
     <div class="group">
+      <h2 class="group-title">Atualizações</h2>
+      <div class="card-list">
+        <div class="setting">
+          <div class="setting-btn">
+            <div><div class="setting-name">Versão instalada</div><div class="setting-desc" id="upd-status">${esc(APP.tag === "dev" ? "Versão de teste" : APP.tag)}</div></div>
+            <button class="btn btn-ghost" id="s-update" style="height:42px;padding:0 14px;flex:none">Buscar atualizações</button>
+          </div>
+        </div>
+        <div class="setting">
+          <div class="setting-name">Atualização automática</div>
+          <div class="setting-desc">O app confere sozinho quando sai versão nova. O Android sempre pede sua confirmação para instalar.</div>
+          <div class="segmented">${segBtns("autoUpdate", [["on", "Baixar sozinho"], ["notify", "Só avisar"], ["off", "Desligada"]])}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="group">
       <h2 class="group-title">Dados</h2>
       <div class="card-list">
         <div class="setting"><button class="setting-btn" id="s-export">
@@ -1056,7 +1073,7 @@ function renderSettings() {
           <span class="row-chev">${ICON.chev}</span></button></div>
       </div>
     </div>
-    <p class="about">Backlog 1.2. Capas da Wikipédia e da Steam. Conquistas e jogadores agora vêm da Steam.</p>`;
+    <p class="about">Backlog ${esc(APP.tag)}. Capas da Wikipédia e da Steam. Conquistas e jogadores agora vêm da Steam.</p>`;
 }
 $("#settings").addEventListener("click", e => {
   const b = e.target.closest("[data-set]");
@@ -1071,6 +1088,7 @@ $("#settings").addEventListener("click", e => {
   }
   if (e.target.closest("#profile-card")) { openProfile(); return; }
   const id = e.target.closest("button")?.id;
+  if (id === "s-update") { manualUpdateCheck($("#upd-status")); return; }
   if (id === "s-export") exportBackup();
   if (id === "s-import") openImport();
   if (id === "s-cache") {
@@ -1323,16 +1341,6 @@ function scheduleSync() {
 function startCloud() { if (cloudReady && auth) fullSync(); }
 
 /* --- Avatar --- */
-function avatarHTML(size) {
-  const photo = profile.usePhoto && auth && auth.photo;
-  if (photo) return `<span class="avatar" style="width:${size}px;height:${size}px"><img src="${esc(auth.photo)}" alt=""></span>`;
-  const initials = (profile.name || "").trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
-  const c = profile.color || "#FFD21F";
-  const rgb = parseInt(c.slice(1), 16);
-  const lum = (0.299 * (rgb >> 16) + 0.587 * ((rgb >> 8) & 255) + 0.114 * (rgb & 255)) / 255;
-  return `<span class="avatar" style="width:${size}px;height:${size}px;background:${c};color:${lum > .6 ? "#111" : "#fff"};font-size:${Math.round(size * .4)}px">${
-    initials ? esc(initials) : `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.4-3.6 4.2-5.4 7.5-5.4s6.1 1.8 7.5 5.4"/></svg>`}</span>`;
-}
 function renderAvatarButton() {
   const el = $("#lib-count");
   if (!el) return;
@@ -1384,12 +1392,53 @@ function profileStats() {
     [top ? platLabel(top[0]) : "–", "mais jogada"]
   ];
 }
+function avatarMode() {
+  if (profile.avatarMode) return profile.avatarMode;
+  return profile.usePhoto && auth && auth.photo ? "google" : "color";
+}
+function avatarHTML(size) {
+  const mode = avatarMode();
+  const src = mode === "photo" && profile.photoData ? profile.photoData
+    : mode === "google" && auth && auth.photo ? auth.photo : "";
+  if (src) return `<span class="avatar" style="width:${size}px;height:${size}px"><img src="${esc(src)}" alt=""></span>`;
+  const initials = (profile.name || "").trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+  const c = profile.color || "#FFD21F";
+  const rgb = parseInt(c.slice(1), 16);
+  const lum = (0.299 * (rgb >> 16) + 0.587 * ((rgb >> 8) & 255) + 0.114 * (rgb & 255)) / 255;
+  return `<span class="avatar" style="width:${size}px;height:${size}px;background:${c};color:${lum > .6 ? "#111" : "#fff"};font-size:${Math.round(size * .4)}px">${
+    initials ? esc(initials) : `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.4-3.6 4.2-5.4 7.5-5.4s6.1 1.8 7.5 5.4"/></svg>`}</span>`;
+}
+
+/* Recorta a foto escolhida em um quadrado de 256 px (fica leve para salvar e sincronizar) */
+function photoToAvatar(file) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      const c = document.createElement("canvas");
+      c.width = c.height = 256;
+      c.getContext("2d").drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 256, 256);
+      URL.revokeObjectURL(url);
+      res(c.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("foto")); };
+    img.src = url;
+  });
+}
+
+const GOOGLE_G = '<svg viewBox="0 0 24 24" class="g-logo"><path fill="#4285F4" stroke="none" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3z"/><path fill="#34A853" stroke="none" d="M12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z"/><path fill="#FBBC05" stroke="none" d="M6.4 14c-.2-.6-.3-1.3-.3-2s.1-1.4.3-2V7.4H3.1a10 10 0 0 0 0 9.2z"/><path fill="#EA4335" stroke="none" d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9A10 10 0 0 0 3.1 7.4L6.4 10c.8-2.3 3-4 5.6-4z"/></svg>';
+const PHONE_ICON = '<svg viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>';
+const CAMERA_ICON = '<svg viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.5-2h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.5"/></svg>';
+
 function openProfile(showEmail) {
   const fav = games.find(g => g.id === profile.favGame);
+  const mode = avatarMode();
   showSheet(`
     <div class="sheet-top"><button class="icon-btn" data-back aria-label="Fechar">${ICON.close}</button></div>
     <div class="profile-hero">
-      ${avatarHTML(96)}
+      <button class="avatar-edit" id="p-avatar" aria-label="Trocar foto do perfil">${avatarHTML(104)}<span class="avatar-cam">${CAMERA_ICON}</span></button>
+      <input type="file" id="p-file" accept="image/*" hidden>
       <input class="name-input" id="p-name" maxlength="40" placeholder="Seu nome" value="${esc(profile.name)}">
       <input class="bio-input" id="p-bio" maxlength="80" placeholder="Uma frase sua, tipo: zerando o backlog um dia por vez" value="${esc(profile.bio)}">
     </div>
@@ -1397,10 +1446,14 @@ function openProfile(showEmail) {
     <div class="stats-grid">${profileStats().map(([v, l]) => `<div class="stat"><b>${esc(v)}</b><span>${l}</span></div>`).join("")}</div>
 
     <div class="field">
-      <span class="field-label">Cor do avatar</span>
-      <div class="swatches" id="p-colors">${AVATAR_COLORS.map(c =>
-        `<button class="sw ${profile.color === c && !(profile.usePhoto && auth && auth.photo) ? "is-on" : ""}" data-c="${c}" style="background:${c}" aria-label="Cor ${c}"></button>`).join("")}
-        ${auth && auth.photo ? `<button class="chip ${profile.usePhoto ? "is-on" : ""}" id="p-photo">Foto do Google</button>` : ""}</div>
+      <span class="field-label">Avatar</span>
+      <div class="swatches" id="p-colors">
+        <button class="chip" id="p-pick">${CAMERA_ICON}Escolher foto</button>
+        ${profile.photoData ? `<button class="chip ${mode === "photo" ? "is-on" : ""}" id="p-usephoto">Minha foto</button>` : ""}
+        ${auth && auth.photo ? `<button class="chip ${mode === "google" ? "is-on" : ""}" id="p-google-photo">Foto do Google</button>` : ""}
+      </div>
+      <div class="swatches" style="margin-top:12px">${AVATAR_COLORS.map(c =>
+        `<button class="sw ${mode === "color" && profile.color === c ? "is-on" : ""}" data-c="${c}" style="background:${c}" aria-label="Cor ${c}"></button>`).join("")}</div>
     </div>
 
     <div class="field">
@@ -1415,21 +1468,32 @@ function openProfile(showEmail) {
         : `<p class="hero-sub" style="margin:0">Adicione jogos à biblioteca para escolher o favorito.</p>`}
     </div>
 
-    <div class="panel" id="acct">
+    <div class="field">
       <span class="field-label">Conta</span>
-      ${!cloudReady ? `<p class="panel-note" style="margin:0">O login na nuvem ainda não está configurado nesta versão do app. Seu perfil e sua biblioteca ficam salvos neste celular.</p>`
-      : auth ? `
-        <p class="panel-note" style="margin:0" id="acct-status">${syncLine()}</p>
-        <div class="actions" style="margin-top:14px">
-          <button class="btn btn-ghost" id="a-sync">Sincronizar agora</button>
-          <button class="btn btn-danger" id="a-out">Sair da conta</button>
-        </div>`
-      : `
-        <p class="panel-note" style="margin:0">Entre para guardar biblioteca, notas, análises e conquistas na nuvem e continuar de onde parou em outro celular. É opcional.</p>
-        <div class="actions" style="margin-top:14px">
-          ${googleReady ? `<button class="btn btn-primary" id="a-google"><svg viewBox="0 0 24 24"><path d="M20.5 12.2c0-.6-.1-1.2-.2-1.8H12v3.4h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.6-3.9 2.6-6.5z"/><path d="M12 21c2.4 0 4.5-.8 5.9-2.2L15 16.6c-.8.5-1.8.9-3 .9a5.2 5.2 0 0 1-4.9-3.6H4.1v2.3A9 9 0 0 0 12 21z"/><path d="M7.1 13.9a5.4 5.4 0 0 1 0-3.5V8.1h-3a9 9 0 0 0 0 8.1z"/><path d="M12 6.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6A9 9 0 0 0 4.1 8.1l3 2.3A5.2 5.2 0 0 1 12 6.6z"/></svg>Entrar com Google</button>` : ""}
-          <button class="btn btn-ghost" id="a-email-toggle">Entrar com e-mail</button>
+      <div class="acct-options">
+        <div class="acct-opt ${!auth ? "is-on" : ""}">
+          <span class="acct-ico">${PHONE_ICON}</span>
+          <div><b>Perfil offline</b><span>Tudo fica salvo só neste celular. Não precisa de conta.</span></div>
+          ${!auth ? `<span class="tag">Em uso</span>` : ""}
         </div>
+        <div class="acct-opt ${auth ? "is-on" : ""}">
+          <span class="acct-ico">${GOOGLE_G}</span>
+          <div><b>Conta Google</b><span id="acct-status">${auth ? syncLine() : "Salva na nuvem e sincroniza entre celulares."}</span></div>
+          ${auth ? `<span class="tag">Conectada</span>` : ""}
+        </div>
+      </div>
+      <div class="actions" style="margin-top:14px">
+        ${auth ? `
+          <button class="btn btn-ghost" id="a-sync">Sincronizar agora</button>
+          <button class="btn btn-danger" id="a-out">Sair e voltar ao perfil offline</button>`
+        : googleReady ? `
+          <button class="btn btn-google" id="a-google">${GOOGLE_G}Entrar com Google</button>
+          <button class="link-btn" id="a-email-toggle" style="justify-self:center">Prefiro entrar com e-mail</button>`
+        : `
+          <button class="btn btn-google" disabled>${GOOGLE_G}Entrar com Google</button>
+          <p class="panel-note" style="margin:0">O login com Google ainda não foi ativado nesta versão. Enquanto isso, o perfil offline guarda tudo neste celular.</p>`}
+      </div>
+      ${!auth && cloudReady ? `
         <form class="email-form" id="a-email" ${showEmail ? "" : "hidden"}>
           <input class="text-input" id="a-mail" type="email" autocomplete="email" placeholder="E-mail">
           <input class="text-input" id="a-pass" type="password" autocomplete="current-password" placeholder="Senha (mínimo 6 caracteres)">
@@ -1438,7 +1502,7 @@ function openProfile(showEmail) {
             <button class="btn btn-primary" type="submit" data-mode="in">Entrar</button>
             <button class="btn btn-ghost" type="submit" data-mode="up">Criar conta</button>
           </div>
-        </form>`}
+        </form>` : ""}
     </div>`);
 
   // Nome e frase entram no perfil na hora; o salvamento espera a pessoa parar de digitar
@@ -1446,13 +1510,32 @@ function openProfile(showEmail) {
   const later = () => { clearTimeout(t); t = setTimeout(saveProfile, 500); };
   body.querySelector("#p-name").addEventListener("input", e => { profile.name = e.target.value.trim(); later(); });
   body.querySelector("#p-bio").addEventListener("input", e => { profile.bio = e.target.value.trim(); later(); });
-  body.querySelector("#p-colors").addEventListener("click", e => {
-    const sw = e.target.closest("[data-c]");
-    if (sw) { profile.color = sw.dataset.c; profile.usePhoto = false; }
-    else if (e.target.closest("#p-photo")) profile.usePhoto = !profile.usePhoto;
-    else return;
-    saveProfile(); openProfile();
+
+  const refresh = () => { const y = body.scrollTop; openProfile(); body.scrollTop = y; };
+  const fileInput = body.querySelector("#p-file");
+  const pick = () => fileInput.click();
+  body.querySelector("#p-avatar").addEventListener("click", pick);
+  body.querySelector("#p-pick").addEventListener("click", pick);
+  fileInput.addEventListener("change", async () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    try {
+      profile.photoData = await photoToAvatar(f);
+      profile.avatarMode = "photo";
+      saveProfile();
+      toast("Foto do perfil atualizada");
+      refresh();
+    } catch (_) { toast("Não consegui abrir essa foto. Tente outra, em JPG ou PNG."); }
   });
+  body.querySelector("#p-colors").addEventListener("click", e => {
+    if (e.target.closest("#p-usephoto")) profile.avatarMode = "photo";
+    else if (e.target.closest("#p-google-photo")) profile.avatarMode = "google";
+    else return;
+    saveProfile(); refresh();
+  });
+  body.querySelectorAll("[data-c]").forEach(sw => sw.addEventListener("click", () => {
+    profile.color = sw.dataset.c; profile.avatarMode = "color"; saveProfile(); refresh();
+  }));
   body.querySelector("#p-plat").addEventListener("click", e => {
     const b = e.target.closest("[data-v]");
     if (!b) return;
@@ -1465,23 +1548,25 @@ function openProfile(showEmail) {
     const b = e.target.closest("[data-g]");
     if (!b) return;
     profile.favGame = profile.favGame === b.dataset.g ? "" : b.dataset.g;
-    saveProfile();
-    const y = body.scrollTop; openProfile(); body.scrollTop = y;
+    saveProfile(); refresh();
   });
 
   const on = (id, fn) => { const el = body.querySelector(id); if (el) el.addEventListener("click", fn); };
   on("#a-sync", () => { fullSync(); toast("Sincronizando…"); });
   on("#a-out", () => {
     auth = null; store.save("backlog.auth.v1", null);
-    toast("Você saiu da conta. Seus dados continuam neste celular.");
+    if (profile.avatarMode === "google") profile.avatarMode = profile.photoData ? "photo" : "color";
+    store.save("backlog.profile.v1", profile);
+    toast("Você voltou ao perfil offline. Seus dados continuam neste celular.");
     renderAvatarButton(); openProfile();
     if (currentView === "settings") renderSettings();
   });
   const afterLogin = async () => {
+    if (!profile.avatarMode && auth.photo && !profile.photoData) profile.avatarMode = "google";
     toast("Conta conectada. Sincronizando…");
     openProfile();
     await fullSync();
-    if (!sheet.hidden) { const y = body.scrollTop; openProfile(); body.scrollTop = y; }
+    if (!sheet.hidden) refresh();
     if (currentView === "settings") renderSettings();
   };
   on("#a-google", async e => {
@@ -1489,22 +1574,118 @@ function openProfile(showEmail) {
     try { await signInGoogle(); await afterLogin(); }
     catch (err) { const m = authError(err); if (m) toast(m); b.disabled = false; }
   });
-  on("#a-email-toggle", () => { const f = body.querySelector("#a-email"); f.hidden = !f.hidden; if (!f.hidden) body.querySelector("#a-mail").focus(); });
+  on("#a-email-toggle", () => { const f = body.querySelector("#a-email"); if (!f) return; f.hidden = !f.hidden; if (!f.hidden) body.querySelector("#a-mail").focus(); });
   const form = body.querySelector("#a-email");
   if (form) form.addEventListener("submit", async e => {
     e.preventDefault();
-    const mode = (e.submitter && e.submitter.dataset.mode) || "in";
+    const modeBtn = (e.submitter && e.submitter.dataset.mode) || "in";
     const err = body.querySelector("#a-err");
     const email = body.querySelector("#a-mail").value.trim(), pass = body.querySelector("#a-pass").value;
     err.hidden = true;
     if (!email || !pass) { err.textContent = "Preencha e-mail e senha."; err.hidden = false; return; }
     form.querySelectorAll("button").forEach(x => x.disabled = true);
-    try { await signInEmail(mode, email, pass); await afterLogin(); }
+    try { await signInEmail(modeBtn, email, pass); await afterLogin(); }
     catch (ex) {
       err.textContent = authError(ex) || "Não foi possível entrar."; err.hidden = false;
       form.querySelectorAll("button").forEach(x => x.disabled = false);
     }
   });
+}
+
+/* =========================================================
+   Atualizações (GitHub Releases)
+   ========================================================= */
+const APP = window.APP_VERSION || { tag: "dev", build: 0 };
+const REPO = "LagazYT/backlog-jogos";
+let updateInfo = null, updateState = "idle", updatePct = 0, updateDownload = null;
+
+function cleanNotes(body) {
+  return String(body || "").split(/\n\s*(Co-Authored-By|Claude-Session)/i)[0].trim();
+}
+async function findUpdate() {
+  const r = await getJSON(`https://api.github.com/repos/${REPO}/releases/latest`);
+  store.save("backlog.updateCheck.v1", Date.now());
+  const build = parseInt(((r.tag_name || "").match(/(\d+)$/) || [])[1], 10) || 0;
+  const apk = (r.assets || []).find(a => /\.apk$/i.test(a.name));
+  if (!apk || build <= APP.build) return null;
+  return { tag: r.tag_name, build, url: apk.browser_download_url, size: apk.size, notes: cleanNotes(r.body), page: r.html_url };
+}
+function startUpdateDownload() {
+  if (!Native || !Native.downloadUpdate || !updateInfo) return Promise.reject(new Error("sem app"));
+  if (updateDownload) return updateDownload;
+  updateState = "downloading"; updatePct = 0; drawUpdateSheet();
+  updateDownload = callNative("downloadUpdate", updateInfo.url)
+    .then(() => { updateState = "ready"; drawUpdateSheet(); })
+    .catch(e => { updateState = "error"; drawUpdateSheet(); throw e; })
+    .finally(() => { updateDownload = null; });
+  return updateDownload;
+}
+window.__updateProgress = pct => {
+  updatePct = pct;
+  const bar = body.querySelector("#upd-bar"), lbl = body.querySelector("#upd-go");
+  if (bar) bar.style.width = pct + "%";
+  if (lbl && updateState === "downloading") lbl.textContent = `Baixando… ${pct}%`;
+};
+function installNow() {
+  const res = Native && Native.installUpdate ? Native.installUpdate() : "missing";
+  if (res === "permission") toast("Permita instalar apps do Backlog e toque em Instalar de novo");
+  if (res === "missing") startUpdateDownload().catch(() => {});
+}
+function openUpdateSheet() {
+  showSheet(`<div id="upd"></div>`);
+  drawUpdateSheet();
+}
+function drawUpdateSheet() {
+  const box = body.querySelector("#upd");
+  if (!box || !updateInfo) return;
+  const mb = updateInfo.size ? `${fmtH(updateInfo.size / 1048576)} MB` : "";
+  const btn = {
+    idle: `Baixar e instalar${mb ? ` (${mb})` : ""}`,
+    downloading: `Baixando… ${updatePct}%`,
+    ready: "Instalar agora",
+    error: "Tentar baixar de novo"
+  }[updateState];
+  box.innerHTML = `
+    <div class="sheet-top"><button class="icon-btn" data-close aria-label="Fechar">${ICON.close}</button></div>
+    <div class="update-hero">
+      <span class="update-badge">${updateInfo.tag}</span>
+      <h2 class="hero-title">Versão nova chegou</h2>
+      <p class="hero-sub">Você está na ${esc(APP.tag)}. ${updateState === "ready" ? "A nova já foi baixada, é só instalar." : "Sua biblioteca continua igual depois de atualizar."}</p>
+    </div>
+    ${updateInfo.notes ? `<div class="panel"><span class="field-label">O que mudou</span><p class="update-notes">${esc(updateInfo.notes)}</p></div>` : ""}
+    ${updateState === "downloading" ? `<div class="progress-track" style="margin-top:22px"><div id="upd-bar" style="width:${updatePct}%"></div></div>` : ""}
+    ${updateState === "error" ? `<p class="form-error" style="margin-top:16px">O download falhou. Confira a internet e tente de novo.</p>` : ""}
+    <div class="actions">
+      <button class="btn btn-primary" id="upd-go" ${updateState === "downloading" ? "disabled" : ""}>${btn}</button>
+      <button class="btn btn-ghost" data-close>Depois</button>
+    </div>`;
+  box.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", closeSheet));
+  box.querySelector("#upd-go").addEventListener("click", () => {
+    if (!Native) { window.open(updateInfo.page, "_blank"); return; }
+    if (updateState === "ready") installNow();
+    else startUpdateDownload().then(installNow).catch(() => {});
+  });
+}
+async function manualUpdateCheck(statusEl) {
+  statusEl.textContent = "Procurando atualizações…";
+  try {
+    updateInfo = await findUpdate();
+    if (!updateInfo) { statusEl.textContent = `Você já está na versão mais nova (${APP.tag}).`; return; }
+    statusEl.textContent = `Versão ${updateInfo.tag} disponível.`;
+    if (updateState !== "ready" && updateState !== "downloading") updateState = "idle";
+    openUpdateSheet();
+  } catch (_) { statusEl.textContent = "Sem conexão com o GitHub agora. Tente de novo mais tarde."; }
+}
+async function autoUpdateCheck() {
+  if (!Native || window.__PREVIEW || settings.autoUpdate === "off" || !APP.build) return;
+  if (Date.now() - store.load("backlog.updateCheck.v1", 0) < 3 * 3600 * 1000) return;
+  try {
+    updateInfo = await findUpdate();
+    if (!updateInfo) return;
+    if (settings.autoUpdate === "notify") { updateState = "idle"; if (sheet.hidden) openUpdateSheet(); return; }
+    await startUpdateDownload();
+    if (sheet.hidden) openUpdateSheet();
+  } catch (_) { /* tenta na próxima abertura */ }
 }
 
 /* Botão voltar do Android */
@@ -1522,6 +1703,7 @@ if (window.__PREVIEW && !games.length) {
 applyTheme();
 renderLibrary();
 startCloud();
+setTimeout(autoUpdateCheck, 2500);
 // Jogos antigos sem cópia local da capa: baixa agora em segundo plano
 games.filter(g => !g.cover && (g.coverRemote || (g.coverAlts || []).length)).forEach(g =>
   downloadCover(gameCovers(g), "cover_" + g.id).then(l => { if (l) { g.cover = l; saveGames(); } }));

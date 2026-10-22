@@ -10,8 +10,8 @@ android {
         applicationId 'com.lagaz.backlog'
         minSdk 26
         targetSdk 34
-        versionCode 4
-        versionName "1.2"
+        versionCode((project.findProperty('vc') ?: '4').toInteger())
+        versionName((project.findProperty('vn') ?: '1.3').toString())
     }
 
     signingConfigs {
@@ -37,6 +37,7 @@ android {
 }
 
 dependencies {
+    implementation 'androidx.core:core:1.13.1'
     implementation 'androidx.credentials:credentials:1.3.0'
     implementation 'androidx.credentials:credentials-play-services-auth:1.3.0'
     implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'

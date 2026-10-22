@@ -2,21 +2,27 @@ package com.lagaz.backlog;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.view.View;
 import android.view.Window;
+import android.provider.Settings;
 import android.webkit.JavascriptInterface;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import androidx.core.content.FileProvider;
 import androidx.credentials.Credential;
 import androidx.credentials.CredentialManager;
 import androidx.credentials.CredentialManagerCallback;
@@ -50,6 +56,8 @@ public class MainActivity extends Activity {
     private WebView web;
     private final ExecutorService pool = Executors.newFixedThreadPool(6);
     private File coverDir;
+    private ValueCallback<Uri[]> fileCallback;
+    private static final int PICK_FILE = 42;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
@@ -76,6 +84,24 @@ public class MainActivity extends Activity {
         s.setTextZoom(100);
 
         web.addJavascriptInterface(new Bridge(), "AndroidBridge");
+        // Permite escolher fotos do celular em <input type="file">
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
+                if (fileCallback != null) fileCallback.onReceiveValue(null);
+                fileCallback = callback;
+                Intent pick = new Intent(Intent.ACTION_GET_CONTENT);
+                pick.addCategory(Intent.CATEGORY_OPENABLE);
+                pick.setType("image/*");
+                try {
+                    startActivityForResult(Intent.createChooser(pick, "Escolher foto"), PICK_FILE);
+                } catch (ActivityNotFoundException e) {
+                    fileCallback = null;
+                    return false;
+                }
+                return true;
+            }
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -88,6 +114,18 @@ public class MainActivity extends Activity {
         });
         web.loadUrl("file:///android_asset/www/index.html");
         setContentView(web);
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == PICK_FILE && fileCallback != null) {
+            Uri[] result = null;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) result = new Uri[]{data.getData()};
+            fileCallback.onReceiveValue(result);
+            fileCallback = null;
+        }
     }
 
     @Override
@@ -297,6 +335,68 @@ public class MainActivity extends Activity {
                     reply(id, false, String.valueOf(e.getMessage()));
                 }
             });
+        }
+
+        /** Baixa o APK novo para a pasta de cache, avisando o progresso. */
+        @JavascriptInterface
+        public void downloadUpdate(final String url, final String id) {
+            pool.submit(() -> {
+                try {
+                    File dir = new File(getCacheDir(), "updates");
+                    //noinspection ResultOfMethodCallIgnored
+                    dir.mkdirs();
+                    File out = new File(dir, "Backlog.apk");
+                    HttpURLConnection c = open(url);
+                    c.setReadTimeout(60000);
+                    int code = c.getResponseCode();
+                    if (code < 200 || code >= 300) { reply(id, false, "HTTP " + code); return; }
+                    long total = c.getContentLengthLong();
+                    long done = 0;
+                    int lastPct = -1;
+                    try (InputStream in = c.getInputStream(); OutputStream os = new FileOutputStream(out)) {
+                        byte[] buf = new byte[65536];
+                        int n;
+                        while ((n = in.read(buf)) > 0) {
+                            os.write(buf, 0, n);
+                            done += n;
+                            if (total > 0) {
+                                int pct = (int) (done * 100 / total);
+                                if (pct != lastPct) {
+                                    lastPct = pct;
+                                    final String js = "window.__updateProgress && window.__updateProgress(" + pct + ")";
+                                    runOnUiThread(() -> web.evaluateJavascript(js, null));
+                                }
+                            }
+                        }
+                    }
+                    reply(id, true, out.getAbsolutePath());
+                } catch (Exception e) {
+                    reply(id, false, String.valueOf(e.getMessage()));
+                }
+            });
+        }
+
+        /** Abre o instalador do Android. Devolve "ok", "permission" ou "missing". */
+        @JavascriptInterface
+        public String installUpdate() {
+            File apk = new File(new File(getCacheDir(), "updates"), "Backlog.apk");
+            if (!apk.exists()) return "missing";
+            if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                runOnUiThread(() -> {
+                    try {
+                        startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
+                    } catch (Exception ignored) { }
+                });
+                return "permission";
+            }
+            runOnUiThread(() -> {
+                Uri uri = FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".fileprovider", apk);
+                Intent i = new Intent(Intent.ACTION_VIEW);
+                i.setDataAndType(uri, "application/vnd.android.package-archive");
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+            });
+            return "ok";
         }
 
         @JavascriptInterface

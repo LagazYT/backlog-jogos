@@ -475,3 +475,35 @@ textarea.review:focus { border-color: var(--accent); }
 .text-input:focus { border-color: var(--accent); }
 .two-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .form-error { margin: 0; color: var(--accent-2); font-size: 13.5px; font-weight: 600; }
+
+/* ---------- Avatar editável, conta e atualização ---------- */
+.avatar-edit { position: relative; border-radius: 50%; }
+.avatar-cam {
+  position: absolute; right: 0; bottom: 6px; width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--accent); color: var(--on-accent);
+  box-shadow: 0 0 0 3px var(--bg);
+}
+.avatar-cam svg { width: 18px; height: 18px; }
+#p-pick svg { width: 17px; height: 17px; }
+
+.acct-options { display: grid; gap: 10px; }
+.acct-opt {
+  display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  padding: 14px; border-radius: 16px; background: var(--bg-2); border: 1.5px solid var(--line);
+}
+.acct-opt.is-on { border-color: var(--accent); }
+.acct-opt b { display: block; font-size: 15px; }
+.acct-opt span:not(.tag):not(.acct-ico) { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+.acct-ico { width: 40px; height: 40px; border-radius: 12px; background: var(--bg-3); display: grid; place-items: center; }
+.acct-ico svg { width: 22px; height: 22px; }
+.tag { font-size: 11.5px; font-weight: 700; padding: 4px 8px; border-radius: 8px; background: var(--accent); color: var(--on-accent); white-space: nowrap; }
+.btn-google { background: #fff; color: #1f1f1f; border: 1px solid #dadce0; }
+.btn-google .g-logo { width: 20px; height: 20px; }
+.btn-google[disabled] { opacity: .5; }
+
+.update-hero { margin-top: 26px; }
+.update-badge {
+  display: inline-block; font-weight: 800; font-size: 13px; padding: 5px 10px; border-radius: 8px;
+  background: var(--accent-2); color: var(--on-accent-2); margin-bottom: 12px; font-variant-numeric: tabular-nums;
+}
+.update-notes { margin: 0; white-space: pre-line; font-size: 14px; line-height: 1.5; }
