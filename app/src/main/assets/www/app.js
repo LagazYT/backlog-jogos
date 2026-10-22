@@ -1726,11 +1726,13 @@ async function autoUpdateCheck() {
 }
 
 /* =========================================================
-   Contas de jogos: Steam, Xbox (OpenXBL) e PlayStation
+   Contas de jogos: Steam, Xbox e PlayStation (só login, sem chaves)
    Os dados de login ficam só neste celular (não vão para a nuvem).
    ========================================================= */
 let accounts = store.load("backlog.accounts.v1", {});
 const saveAccounts = () => store.save("backlog.accounts.v1", accounts);
+// Conta do Xbox antiga (chave do OpenXBL) não vale mais: pede login de novo
+if (accounts.xbox && !accounts.xbox.xsts) { delete accounts.xbox; saveAccounts(); }
 
 /* Requisição completa (cabeçalhos, redirecionamento) pela ponte nativa */
 async function http(method, url, { headers = {}, body = "", follow = true } = {}) {
@@ -1757,33 +1759,57 @@ const isoMinutes = d => {
   return m ? (+m[1] || 0) * 1440 + (+m[2] || 0) * 60 + (+m[3] || 0) + Math.round((+m[4] || 0) / 60) : 0;
 };
 
-/* ---------- Steam ---------- */
-const STEAM_CAPTURE = `
-  if (location.host !== 'steamcommunity.com' || location.pathname.indexOf('/dev/apikey') !== 0) return null;
-  var html = document.documentElement.innerHTML;
-  var sid = (html.match(/g_steamID\\s*=\\s*"(\\d{17})"/) || [])[1];
-  var key = ((document.body.innerText || '').match(/\\b([0-9A-F]{32})\\b/) || [])[1];
-  if (sid && key) return JSON.stringify({ steamid: sid, key: key });
-  var d = document.querySelector('#domain'); if (d && !d.value) d.value = 'backlog.lagaz.app';
-  var a = document.querySelector('#agreeTerms'); if (a) a.checked = true;
-  return null;`;
-async function connectSteam() {
-  const raw = await openLogin("Steam", "https://steamcommunity.com/dev/apikey", STEAM_CAPTURE, "",
-    "Entre na Steam. Se aparecer o formulário, toque em Registrar e confirme no app da Steam. O resto é automático.");
-  const { steamid, key } = JSON.parse(raw);
-  const acc = { steamid, key, name: "", avatar: "" };
-  try {
-    const d = await getJSON(`https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=${key}&steamids=${steamid}`);
-    const p = d.response.players[0];
-    acc.name = p.personaname; acc.avatar = p.avatarfull;
-  } catch (_) {}
-  accounts.steam = acc; saveAccounts();
+/* ---------- Steam (login no site da Steam, sem chave de API) ---------- */
+function jwtPayload(t) {
+  try { return JSON.parse(atob(String(t).split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))); } catch (_) { return {}; }
 }
+async function cookieGet(url, follow = true) {
+  if (!Native || !Native.httpCookie) throw userErr("Disponível só no app instalado");
+  return JSON.parse(await callNative("httpCookie", url, follow));
+}
+const STEAM_TOKEN_URL = "https://store.steampowered.com/pointssummary/ajaxgetasyncconfig";
+const STEAM_CAPTURE = `
+  if (location.host !== 'store.steampowered.com') return null;
+  if (location.pathname.indexOf('/pointssummary/ajaxgetasyncconfig') === 0) {
+    try { var j = JSON.parse(document.body.innerText); if (j && j.data && j.data.webapi_token) return JSON.stringify({ token: j.data.webapi_token }); } catch (e) {}
+    if (!sessionStorage.getItem('sl')) { sessionStorage.setItem('sl', '1'); location.href = 'https://store.steampowered.com/login/?redir=pointssummary%2Fajaxgetasyncconfig'; }
+    return null;
+  }
+  if (location.pathname.indexOf('/login') !== 0 && /g_AccountID\\s*=\\s*[1-9]/.test(document.documentElement.innerHTML)) {
+    location.href = '${STEAM_TOKEN_URL}';
+  }
+  return null;`;
+async function steamProfile(steamid) {
+  try {
+    const x = new DOMParser().parseFromString(await getText(`https://steamcommunity.com/profiles/${steamid}/?xml=1`), "text/xml");
+    return { name: (x.querySelector("steamID") || {}).textContent || "", avatar: (x.querySelector("avatarFull") || {}).textContent || "" };
+  } catch (_) { return { name: "", avatar: "" }; }
+}
+async function connectSteam() {
+  const raw = await openLogin("Steam", "https://store.steampowered.com/login/?redir=pointssummary%2Fajaxgetasyncconfig", STEAM_CAPTURE,
+    STEAM_TOKEN_URL, "Entre na sua conta Steam. Se não voltar sozinho, toque em Concluir.");
+  const { token } = JSON.parse(raw);
+  const p = jwtPayload(token);
+  if (!p.sub) throw userErr("A Steam não confirmou o login. Tente de novo.");
+  accounts.steam = { token, exp: (p.exp || 0) * 1000, steamid: p.sub, ...(await steamProfile(p.sub)) };
+  saveAccounts();
+}
+async function steamToken() {
+  const a = accounts.steam;
+  if (a.token && Date.now() < a.exp - 120000) return a.token;
+  // Renova sozinho usando a sessão da Steam guardada no celular
+  let t = "";
+  try { const r = await cookieGet(STEAM_TOKEN_URL); t = ((JSON.parse(r.body || "{}").data) || {}).webapi_token || ""; } catch (_) {}
+  if (!t) throw userErr("Sua sessão da Steam expirou. Toque em Desconectar e entre de novo na Steam.");
+  a.token = t; a.exp = (jwtPayload(t).exp || 0) * 1000; saveAccounts();
+  return t;
+}
+const steamAuth = async () => accounts.steam.key ? `key=${accounts.steam.key}` : `access_token=${await steamToken()}`;
 async function steamLibrary() {
-  const { key, steamid } = accounts.steam;
-  const d = await getJSON(`https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${key}&steamid=${steamid}&include_appinfo=1&include_played_free_games=1&format=json`);
+  const { steamid } = accounts.steam;
+  const d = await getJSON(`https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?${await steamAuth()}&steamid=${steamid}&include_appinfo=1&include_played_free_games=1&format=json`);
   const list = d.response && d.response.games;
-  if (!list) throw userErr("A Steam não mostrou seus jogos. Deixe \"Detalhes dos jogos\" como Público nas configurações de privacidade do seu perfil Steam e tente de novo.");
+  if (!list) throw userErr("A Steam não mostrou seus jogos. Abra a Steam > Perfil > Editar perfil > Privacidade e deixe \"Detalhes dos jogos\" como Público.");
   return list.map(g => ({
     id: String(g.appid), title: g.name, platform: "PC", steamId: g.appid,
     minutes: g.playtime_forever || 0, last: (g.rtime_last_played || 0) * 1000,
@@ -1791,29 +1817,70 @@ async function steamLibrary() {
   }));
 }
 async function steamUnlocked(appid) {
-  const { key, steamid } = accounts.steam;
-  const d = await getJSON(`https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?key=${key}&steamid=${steamid}&appid=${appid}`);
+  const { steamid } = accounts.steam;
+  const d = await getJSON(`https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?${await steamAuth()}&steamid=${steamid}&appid=${appid}`);
   return new Set(((d.playerstats && d.playerstats.achievements) || []).filter(a => a.achieved).map(a => a.apiname));
 }
 
-/* ---------- Xbox (OpenXBL) ---------- */
-const xblHeaders = () => ({ "X-Authorization": accounts.xbox.key, "Accept": "application/json", "Accept-Language": "pt-BR" });
-async function connectXbox(key) {
-  const d = await httpJSON("GET", "https://xbl.io/api/v2/account", { headers: { "X-Authorization": key, "Accept": "application/json" } })
-    .catch(e => { throw userErr(e.status === 401 || e.status === 403 ? "Essa chave não foi aceita pelo OpenXBL. Confira se copiou inteira." : "Não consegui falar com o OpenXBL. Tente de novo."); });
-  const u = (d.profileUsers || [])[0] || {};
-  const setting = id => ((u.settings || []).find(s => s.id === id) || {}).value || "";
-  accounts.xbox = { key, xuid: u.id || "", name: setting("Gamertag"), avatar: setting("GameDisplayPicRaw") };
-  saveAccounts();
+/* ---------- Xbox (login da conta Microsoft, direto no Xbox Live) ---------- */
+const XBOX_CLIENT = "000000004C12AE6F";
+const XBOX_REDIRECT = "https://login.live.com/oauth20_desktop.srf";
+const XBOX_AUTH_URL = `https://login.live.com/oauth20_authorize.srf?client_id=${XBOX_CLIENT}&redirect_uri=${encodeURIComponent(XBOX_REDIRECT)}&response_type=token&scope=${encodeURIComponent("service::user.auth.xboxlive.com::MBI_SSL")}&display=touch&locale=pt-BR`;
+const XBOX_CAPTURE = `
+  if (location.href.indexOf('oauth20_desktop.srf') >= 0 && location.hash.indexOf('access_token=') >= 0) return location.hash.slice(1);
+  return null;`;
+const jsonHeaders = extra => ({ "Content-Type": "application/json", "Accept": "application/json", ...extra });
+async function xboxTokensFromRps(rps) {
+  const u = await httpJSON("POST", "https://user.auth.xboxlive.com/user/authenticate", {
+    headers: jsonHeaders({ "x-xbl-contract-version": "1" }),
+    body: JSON.stringify({ Properties: { AuthMethod: "RPS", SiteName: "user.auth.xboxlive.com", RpsTicket: rps }, RelyingParty: "http://auth.xboxlive.com", TokenType: "JWT" })
+  });
+  const x = await httpJSON("POST", "https://xsts.auth.xboxlive.com/xsts/authorize", {
+    headers: jsonHeaders({ "x-xbl-contract-version": "1" }),
+    body: JSON.stringify({ Properties: { SandboxId: "RETAIL", UserTokens: [u.Token] }, RelyingParty: "http://xboxlive.com", TokenType: "JWT" })
+  }).catch(e => {
+    const code = e.data && e.data.XErr;
+    throw userErr(code === 2148916233 ? "Essa conta Microsoft ainda não tem perfil Xbox. Crie um em xbox.com e tente de novo."
+      : code === 2148916238 ? "Contas de menores de idade precisam de permissão de um adulto da família Microsoft."
+      : "O Xbox Live recusou o login. Tente de novo.");
+  });
+  const c = (x.DisplayClaims && x.DisplayClaims.xui && x.DisplayClaims.xui[0]) || {};
+  return { xsts: x.Token, uhs: c.uhs, xuid: c.xid, name: c.gtg || "", exp: Date.parse(x.NotAfter) || Date.now() + 3600 * 1000 };
 }
-function findStat(obj, name) {
-  if (!obj || typeof obj !== "object") return null;
-  if (obj.name === name && obj.value != null) return Number(obj.value);
-  for (const v of Object.values(obj)) { const r = findStat(v, name); if (r != null) return r; }
-  return null;
+async function connectXbox() {
+  const raw = await openLogin("Xbox", XBOX_AUTH_URL, XBOX_CAPTURE, "", "Entre com a conta Microsoft que você usa no Xbox.");
+  const rps = new URLSearchParams(raw).get("access_token");
+  if (!rps) throw userErr("A Microsoft não confirmou o login. Tente de novo.");
+  accounts.xbox = { ...(await xboxTokensFromRps(rps)), avatar: "" };
+  saveAccounts();
+  try {
+    const p = await httpJSON("GET", `https://profile.xboxlive.com/users/xuid(${accounts.xbox.xuid})/profile/settings?settings=GameDisplayPicRaw,Gamertag`, { headers: await xblHeaders() });
+    const st = ((p.profileUsers || [])[0] || {}).settings || [];
+    const v = id => (st.find(s => s.id === id) || {}).value || "";
+    accounts.xbox.avatar = v("GameDisplayPicRaw");
+    accounts.xbox.name = v("Gamertag") || accounts.xbox.name;
+    saveAccounts();
+  } catch (_) {}
+}
+async function xblHeaders(contract = "2") {
+  const a = accounts.xbox;
+  if (!a.xsts) throw userErr("Conecte o Xbox de novo em Ajustes.");
+  if (Date.now() > a.exp - 120000) {
+    // Renova sozinho usando a sessão da Microsoft guardada no celular
+    let rps = "";
+    try {
+      const r = await cookieGet(XBOX_AUTH_URL, false);
+      rps = new URLSearchParams((r.location.split("#")[1] || "")).get("access_token") || "";
+    } catch (_) {}
+    if (!rps) throw userErr("Sua sessão do Xbox expirou. Toque em Desconectar e entre de novo.");
+    Object.assign(a, await xboxTokensFromRps(rps));
+    saveAccounts();
+  }
+  return { Authorization: `XBL3.0 x=${a.uhs};${a.xsts}`, "x-xbl-contract-version": contract, Accept: "application/json", "Accept-Language": "pt-BR" };
 }
 async function xboxLibrary() {
-  const d = await httpJSON("GET", "https://xbl.io/api/v2/player/titleHistory", { headers: xblHeaders() });
+  const { xuid } = accounts.xbox;
+  const d = await httpJSON("GET", `https://titlehub.xboxlive.com/users/xuid(${xuid})/titles/titlehistory/decoration/achievement,image,detail?maxItems=1000`, { headers: await xblHeaders("2") });
   const titles = (d.titles || []).filter(t => !t.type || t.type === "Game");
   const items = titles.map(t => {
     const devs = t.devices || [];
@@ -1827,20 +1894,21 @@ async function xboxLibrary() {
       complete: (ach.progressPercentage || 0) >= 100
     };
   });
-  // Tempo de jogo: uma consulta por jogo, então só os 25 jogados mais recentemente
-  const recent = [...items].sort((a, b) => b.last - a.last).slice(0, 25);
-  await Promise.allSettled(recent.map(async it => {
-    const s = await httpJSON("GET", `https://xbl.io/api/v2/achievements/stats/${it.id}`, { headers: xblHeaders() });
-    const m = findStat(s, "MinutesPlayed");
-    if (m) it.minutes = m;
-  }));
+  // Tempo de jogo: uma consulta em lote para até 200 jogos
+  try {
+    const s = await httpJSON("POST", "https://userstats.xboxlive.com/batch", {
+      headers: { ...(await xblHeaders("2")), "Content-Type": "application/json" },
+      body: JSON.stringify({ arrangebyfield: "xuid", xuids: [xuid], stats: items.slice(0, 200).map(i => ({ name: "MinutesPlayed", titleid: i.id })) })
+    });
+    const stats = ((s.statlistscollection || [])[0] || {}).stats || [];
+    const byId = new Map(stats.map(x => [String(x.titleid), Number(x.value) || 0]));
+    items.forEach(i => { if (byId.get(i.id)) i.minutes = byId.get(i.id); });
+  } catch (_) { /* sem horas, segue com o resto */ }
   return items;
 }
 async function xboxAchievements(titleId) {
   const { xuid } = accounts.xbox;
-  let d;
-  try { d = await httpJSON("GET", `https://xbl.io/api/v2/achievements/player/${xuid}/${titleId}`, { headers: xblHeaders() }); }
-  catch (_) { d = await httpJSON("GET", `https://xbl.io/api/v2/achievements/player/${xuid}/title/${titleId}`, { headers: xblHeaders() }); }
+  const d = await httpJSON("GET", `https://achievements.xboxlive.com/users/xuid(${xuid})/achievements?titleId=${titleId}&maxItems=1000`, { headers: await xblHeaders("4") });
   const synced = new Set();
   const list = (d.achievements || []).map(a => {
     if (a.progressState === "Achieved") synced.add(String(a.id));
@@ -2030,8 +2098,8 @@ function openAccount(src) {
   const a = accounts[src];
   const info = PLATFORM_INFO[src];
   const how = {
-    steam: "Você entra na sua conta Steam aqui dentro do app. O app cria uma chave pessoal da API da Steam (a Steam pede para confirmar no app dela) e lê seus jogos, horas jogadas e conquistas. Para funcionar, seus \"Detalhes dos jogos\" precisam estar públicos na privacidade do perfil Steam.",
-    xbox: "A Microsoft não libera acesso direto para apps como este, então usamos o OpenXBL, um serviço gratuito. Toque em Abrir OpenXBL, entre com sua conta Microsoft, crie uma chave de API (API Keys, botão Create) e cole aqui embaixo.",
+    steam: "Entre com a sua conta Steam aqui dentro do app e pronto: ele lê seus jogos, as horas jogadas e as conquistas. Se a Steam disser que os jogos estão ocultos, deixe \"Detalhes dos jogos\" como Público na privacidade do seu perfil.",
+    xbox: "Entre com a conta Microsoft que você usa no Xbox aqui dentro do app. Ele lê seus jogos, as horas jogadas e as conquistas direto do Xbox Live.",
     psn: "Você entra na sua conta PlayStation aqui dentro do app e o app pega o acesso sozinho. Ele lê seus jogos de PS4 e PS5, as horas jogadas e os troféus. O acesso vale por uns dois meses; depois é só conectar de novo."
   }[src];
   showSheet(`
@@ -2055,29 +2123,20 @@ function openAccount(src) {
     : `
       <p class="hero-sub" style="margin-top:14px">${how}</p>
       <div class="actions">
-        ${src === "xbox" ? `
-          <button class="btn btn-ghost" id="xbl-open">Abrir OpenXBL</button>
-          <input class="text-input" id="xbl-key" placeholder="Cole aqui a chave do OpenXBL" autocomplete="off">
-          <button class="btn btn-primary" id="acct-connect">Conectar Xbox</button>`
-        : `<button class="btn btn-primary" id="acct-connect">Entrar com ${info.name}</button>`}
+        <button class="btn btn-primary" id="acct-connect">Entrar com ${info.name}</button>
         <p class="form-error" id="acct-err" hidden></p>
       </div>
-      <p class="panel-note">A chave e o acesso ficam guardados só neste celular. Nada disso vai para a nuvem do app.</p>`}`,
+      <p class="panel-note">O login é feito no site oficial da ${info.name}. O app não vê sua senha, e o acesso fica guardado só neste celular.</p>`}`,
     () => { closeSheet(); if (currentView === "settings") renderSettings(); });
 
   const on = (id, fn) => { const el = body.querySelector(id); if (el) el.addEventListener("click", fn); };
   const showErr = m => { const el = body.querySelector("#acct-err"); if (el) { el.textContent = m; el.hidden = !m; } };
-  on("#xbl-open", () => openLogin("OpenXBL", "https://xbl.io/", "return null;", "", "Entre com a conta Microsoft, abra API Keys e toque em Create. Copie a chave e feche esta tela.").catch(() => {}));
   on("#acct-connect", async e => {
     const b = e.currentTarget; b.disabled = true; showErr("");
     try {
       if (src === "steam") await connectSteam();
       else if (src === "psn") await connectPsn();
-      else {
-        const key = body.querySelector("#xbl-key").value.trim();
-        if (!key) throw userErr("Cole a chave do OpenXBL primeiro.");
-        await connectXbox(key);
-      }
+      else await connectXbox();
       toast(`${info.name} conectado`);
       openAccount(src);
     } catch (err) {

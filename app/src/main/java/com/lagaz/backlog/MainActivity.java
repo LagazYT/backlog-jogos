@@ -68,6 +68,7 @@ public class MainActivity extends Activity {
     private WebView web;
     private final ExecutorService pool = Executors.newFixedThreadPool(6);
     private File coverDir;
+    private volatile String webUA = USER_AGENT;
     private ValueCallback<Uri[]> fileCallback;
     private static final int PICK_FILE = 42;
 
@@ -94,6 +95,7 @@ public class MainActivity extends Activity {
         s.setAllowFileAccessFromFileURLs(true);
         s.setMediaPlaybackRequiresUserGesture(true);
         s.setTextZoom(100);
+        webUA = s.getUserAgentString();
 
         web.addJavascriptInterface(new Bridge(), "AndroidBridge");
         // Permite escolher fotos do celular em <input type="file">
@@ -523,11 +525,39 @@ public class MainActivity extends Activity {
                 close.setOnClickListener(v -> dlg.dismiss());
                 dlg.setOnDismissListener(d -> {
                     if (!done[0]) { done[0] = true; reply(id, false, "cancelado"); }
+                    CookieManager.getInstance().flush();
                     lw.destroy();
                 });
                 dlg.setContentView(root);
                 dlg.show();
                 lw.loadUrl(startUrl);
+            });
+        }
+
+        /** GET usando os cookies das telas de login (sessão Steam/Microsoft). Responde {status, location, body}. */
+        @JavascriptInterface
+        public void httpCookie(final String url, final boolean follow, final String id) {
+            pool.submit(() -> {
+                try {
+                    HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                    c.setConnectTimeout(15000);
+                    c.setReadTimeout(30000);
+                    c.setInstanceFollowRedirects(follow);
+                    c.setRequestProperty("User-Agent", webUA);
+                    String ck = CookieManager.getInstance().getCookie(url);
+                    if (ck != null) c.setRequestProperty("Cookie", ck);
+                    int code = c.getResponseCode();
+                    InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+                    String text = in == null ? "" : new String(readAll(in), StandardCharsets.UTF_8);
+                    JSONObject r = new JSONObject();
+                    r.put("status", code);
+                    String loc = c.getHeaderField("Location");
+                    r.put("location", loc == null ? "" : loc);
+                    r.put("body", text);
+                    reply(id, true, r.toString());
+                } catch (Exception e) {
+                    reply(id, false, String.valueOf(e.getMessage()));
+                }
             });
         }
 

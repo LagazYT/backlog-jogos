@@ -75,11 +75,11 @@ Feito pelo canal **Lagaz**, pra quem leva a sério essa coisa de "um dia eu zero
 - **Capas e busca:** Wikipédia (cobre todas as plataformas, até Nintendo) e loja da Steam.
 - **Jogadores agora e conquistas:** serviços públicos da Steam. Por isso conquistas e o ranking *Em alta* só valem pra jogos que estão na Steam.
 - **Tempo pra zerar:** médias aproximadas da comunidade, guardadas em [`data.js`](app/src/main/assets/www/data.js). Quer adicionar um jogo? Manda um PR!
-- **Contas de jogos:**
-  - *Steam:* você entra na Steam dentro do app e ele cria sua chave pessoal da API (precisa dos detalhes de jogos públicos no perfil).
-  - *PlayStation:* login na PSN dentro do app, o mesmo jeito que sites tipo PSNProfiles usam. Lê jogos de PS4/PS5, horas e troféus.
-  - *Xbox:* via [OpenXBL](https://xbl.io), serviço gratuito, porque a Microsoft não libera acesso direto. Você cola a chave e pronto.
-  - Chaves e acessos ficam só no seu celular, nunca vão pra nuvem.
+- **Contas de jogos:** você só faz login no site oficial de cada plataforma, dentro do app. Sem chave, sem cadastro extra.
+  - *Steam:* jogos, horas e conquistas (os detalhes de jogos precisam estar públicos no perfil).
+  - *Xbox:* login com a conta Microsoft, lendo jogos, horas e conquistas direto do Xbox Live.
+  - *PlayStation:* login na PSN, lendo jogos de PS4/PS5, horas e troféus.
+  - O app nunca vê sua senha, e o acesso fica só no seu celular.
 - **Sua conta (opcional):** Firebase (login e banco de dados). Cada pessoa só consegue ler e escrever os próprios dados.
 
 ## 🛠️ Pra quem curte código
