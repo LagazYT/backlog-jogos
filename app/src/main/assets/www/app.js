@@ -1600,7 +1600,9 @@ const REPO = "LagazYT/backlog-jogos";
 let updateInfo = null, updateState = "idle", updatePct = 0, updateDownload = null;
 
 function cleanNotes(body) {
-  return String(body || "").split(/\n\s*(Co-Authored-By|Claude-Session)/i)[0].trim();
+  let t = String(body || "").trim();
+  if (t.startsWith('"')) { try { t = JSON.parse(t); } catch (_) {} }
+  return t.split(/\n\s*(Co-Authored-By|Claude-Session)/i)[0].trim();
 }
 async function findUpdate() {
   const r = await getJSON(`https://api.github.com/repos/${REPO}/releases/latest`);
