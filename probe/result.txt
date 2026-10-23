@@ -1,15 +1,37 @@
-signUp 200 {
-  "kind": "identitytoolkit#SignupNewUserResponse",
-  "idToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjkwNGIwZjkxYmU2ZWIwODY3ZGFiYmFhYjU4N2RmYzJlMzNmMDBhMjQiLCJ0eXAiO
-Traceback (most recent call last):
-  File "<stdin>", line 14, in <module>
-  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
-    return _default_decoder.decode(s)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/json/decoder.py", line 337, in decode
-    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/json/decoder.py", line 353, in raw_decode
-    obj, end = self.scan_once(s, idx)
-               ^^^^^^^^^^^^^^^^^^^^^^
-json.decoder.JSONDecodeError: Unterminated string starting at: line 3 column 14 (char 66)
+signUp ok Lcby1T
+noauth read 401 {
+  "error" : "Permission denied"
+}
+
+handle put 200 "Lcby1T9okiS2bt2xFn3xvUVCKbp1"
+handle steal 401 {
+  "error" : "Permission denied"
+}
+
+profile put 200 {"handle":"zzprobe","name":"teste"}
+profile other 401 {
+  "error" : "Permission denied"
+}
+
+review put 200 {"at":1,"game":"Teste","gameKey":"teste","uid":"Lcby1T9okiS2bt2xFn3xvUVCKbp1"}
+review fake 401 {
+  "error" : "Permission denied"
+}
+
+query at 200 {"Lcby1T9okiS2bt2xFn3xvUVCKbp1_teste":{"at":1,"game":"Teste","gameKey":"teste","uid":"Lcby1T9okiS2bt2xFn3xvUVCKbp1"}}
+query uid 200 {"Lcby1T9okiS2bt2xFn3xvUVCKbp1_teste":{"at":1,"game":"Teste","gameKey":"teste","uid":"Lcby1T9okiS2bt2xFn3xvUVCKbp1"}}
+query gameKey 200 {"Lcby1T9okiS2bt2xFn3xvUVCKbp1_teste":{"at":1,"game":"Teste","gameKey":"teste","uid":"Lcby1T9okiS2bt2xFn3xvUVCKbp1"}}
+query handle 200 {"Lcby1T9okiS2bt2xFn3xvUVCKbp1":{"handle":"zzprobe","name":"teste"}}
+like 200 true
+report 200 {"name":"-P4dIq_1Pvh5N1qPcpgP"}
+report read 401 {
+  "error" : "Permission denied"
+}
+
+users own 200 {"v":1}
+del likes 401
+del reviews 200
+del profiles 200
+del handles 200
+del users 200
+account delete 200
