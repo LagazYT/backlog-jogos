@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.ActivityNotFoundException;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.BitmapFactory;
@@ -20,7 +21,9 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.webkit.CookieManager;
 import android.view.Window;
+import android.provider.MediaStore;
 import android.provider.Settings;
+import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -583,6 +586,85 @@ public class MainActivity extends Activity {
                     }
                 }
                 cm.flush();
+            });
+        }
+
+        /** Lê uma imagem (file:// ou https) e devolve como data URL, para desenhar no cartão. */
+        @JavascriptInterface
+        public void imageData(final String url, final String id) {
+            pool.submit(() -> {
+                try {
+                    byte[] data;
+                    String mime = "image/jpeg";
+                    if (url.startsWith("file://")) {
+                        data = readAll(new FileInputStream(new File(Uri.parse(url).getPath())));
+                    } else {
+                        HttpURLConnection c = open(url);
+                        int code = c.getResponseCode();
+                        String type = c.getContentType();
+                        if (code < 200 || code >= 300 || type == null || !type.startsWith("image/")) { reply(id, false, "sem imagem"); return; }
+                        mime = type.split(";")[0].trim();
+                        data = readAll(c.getInputStream());
+                    }
+                    BitmapFactory.Options o = new BitmapFactory.Options();
+                    o.inJustDecodeBounds = true;
+                    BitmapFactory.decodeByteArray(data, 0, data.length, o);
+                    if (o.outMimeType != null) mime = o.outMimeType;
+                    if (o.outWidth < 20) { reply(id, false, "imagem inválida"); return; }
+                    reply(id, true, "data:" + mime + ";base64," + Base64.encodeToString(data, Base64.NO_WRAP));
+                } catch (Exception e) {
+                    reply(id, false, String.valueOf(e.getMessage()));
+                }
+            });
+        }
+
+        private byte[] decodeDataUrl(String dataUrl) {
+            return Base64.decode(dataUrl.substring(dataUrl.indexOf(',') + 1), Base64.DEFAULT);
+        }
+
+        /** Compartilha um PNG (data URL) pelo menu do Android. */
+        @JavascriptInterface
+        public void shareImage(final String dataUrl, final String text, final String id) {
+            pool.submit(() -> {
+                try {
+                    File dir = new File(getCacheDir(), "share");
+                    //noinspection ResultOfMethodCallIgnored
+                    dir.mkdirs();
+                    File f = new File(dir, "backlog-" + System.currentTimeMillis() + ".png");
+                    try (OutputStream out = new FileOutputStream(f)) { out.write(decodeDataUrl(dataUrl)); }
+                    runOnUiThread(() -> {
+                        Uri uri = FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".fileprovider", f);
+                        Intent i = new Intent(Intent.ACTION_SEND);
+                        i.setType("image/png");
+                        i.putExtra(Intent.EXTRA_STREAM, uri);
+                        if (text != null && !text.isEmpty()) i.putExtra(Intent.EXTRA_TEXT, text);
+                        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivity(Intent.createChooser(i, "Compartilhar"));
+                    });
+                    reply(id, true, "ok");
+                } catch (Exception e) {
+                    reply(id, false, String.valueOf(e.getMessage()));
+                }
+            });
+        }
+
+        /** Salva um PNG (data URL) em Imagens/Backlog. */
+        @JavascriptInterface
+        public void saveImage(final String dataUrl, final String name, final String id) {
+            pool.submit(() -> {
+                try {
+                    if (Build.VERSION.SDK_INT < 29) { reply(id, false, "antigo"); return; }
+                    ContentValues v = new ContentValues();
+                    v.put(MediaStore.Images.Media.DISPLAY_NAME, name + ".png");
+                    v.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+                    v.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Backlog");
+                    Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
+                    if (uri == null) { reply(id, false, "sem acesso"); return; }
+                    try (OutputStream out = getContentResolver().openOutputStream(uri)) { out.write(decodeDataUrl(dataUrl)); }
+                    reply(id, true, "ok");
+                } catch (Exception e) {
+                    reply(id, false, String.valueOf(e.getMessage()));
+                }
             });
         }
 

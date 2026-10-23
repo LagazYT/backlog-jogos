@@ -34,6 +34,11 @@ Feito pelo canal **Lagaz**, pra quem leva a sério essa coisa de "um dia eu zero
 | 📊 **Tempo pra zerar** | Lista de single players populares com o tempo médio de *História*, *História + extras* e *100%*, no estilo HowLongToBeat. |
 | 🔥 **Em alta agora** | Os single players com mais gente jogando neste exato momento, com número ao vivo da Steam. |
 | 🏆 **Rastreador de conquistas** | Pesquisa um jogo da Steam e vê todas as conquistas (em português!), quantos % dos jogadores têm cada uma, quais são raras e secretas. Vai marcando as que você fez e acompanha o progresso. |
+| 🎲 **Roleta do backlog** | Não sabe o que jogar? Diz quanto tempo tem (até 10 h, 10 a 30 h…) e o app sorteia um jogo da sua lista. |
+| 🎯 **Metas do ano** | "Zerar 12 jogos em 2026", com barra de progresso, ritmo ("você está 2 à frente") e gráfico por mês. |
+| 🕰️ **Linha do tempo** | Toda a história da sua estante: quando começou, zerou, largou ou avaliou cada jogo. |
+| 📸 **Cartão de compartilhar** | Gera uma imagem bonita do jogo (capa, nota, horas e sua análise) ou da sua meta, pronta pros Stories ou pro feed. |
+| 🌐 **Rede** | Perfis públicos com @, avaliações de outras pessoas, seguir, curtir, média da rede para cada jogo, spoiler escondido, denunciar e bloquear. Você escolhe o que publica. |
 | 👤 **Perfil** | Nome, frase, cor do avatar, plataforma e jogo favoritos, e as suas estatísticas: jogos, zerados, horas, conquistas, nota média. |
 | 🔗 **Steam, Xbox e PlayStation** | Conecta suas contas e o app puxa seus jogos, as horas jogadas e o progresso de conquistas e troféus direto pra biblioteca. Sua nota e análise não são mexidas. |
 | 🔄 **Atualiza sozinho** | O app avisa (ou já baixa) quando sai versão nova. Também tem o botão *Buscar atualizações*. |

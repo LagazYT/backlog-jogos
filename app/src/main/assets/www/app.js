@@ -306,6 +306,7 @@ function go(view) {
   if (view === "explore") renderExplore();
   if (view === "ach") renderTracked();
   if (view === "settings") renderSettings();
+  if (view === "net") renderNet();
 }
 document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => go(t.dataset.view)));
 document.addEventListener("click", e => { const g = e.target.closest("[data-goto]"); if (g) go(g.dataset.goto); });
@@ -365,6 +366,7 @@ function renderLibrary() {
       <div class="case-sub"><span class="pip" style="background:${st.color}"></span>${esc(platLabel(g.platform) || st.label)} ${stars}</div>
     </button>`;
   }).join("") || `<p class="status-line" style="grid-column:1/-1;padding:0">Nenhum jogo com esse status.</p>`) : "";
+  renderLibExtras();
 }
 $("#lib-filters").addEventListener("click", e => {
   const c = e.target.closest("[data-f]");
@@ -630,10 +632,24 @@ function openGame(game, result, back) {
       </div>
     </div>
 
+    <div class="field" id="done-field" ${draft.status === "done" ? "" : "hidden"}>
+      <label class="field-label" for="f-done">Zerado em</label>
+      <input class="text-input date-input" id="f-done" type="date" max="${isoDate(Date.now())}" value="${draft.doneAt ? isoDate(draft.doneAt) : ""}">
+    </div>
+
     <div class="field">
       <label class="field-label" for="f-review">Sua análise</label>
       <textarea class="review" id="f-review" placeholder="O que achou da história, da jogabilidade, do final…">${esc(draft.review)}</textarea>
     </div>
+
+    ${socialReady() ? `<div class="panel net-share">
+      <div class="switch-row">
+        <div><b>Publicar na rede</b><span>Sua nota e análise aparecem para outras pessoas.</span></div>
+        <button class="switch ${draft.shared !== false ? "is-on" : ""}" id="f-shared" role="switch" aria-checked="${draft.shared !== false}" aria-label="Publicar na rede"></button>
+      </div>
+      <button class="chip ${draft.spoiler ? "is-on" : ""}" id="f-spoiler" style="margin-top:12px">Minha análise tem spoiler</button>
+      <p class="panel-note" id="net-sum" style="margin-top:12px">Carregando o que a rede achou…</p>
+    </div>` : ""}
 
     ${pop ? `<div class="panel">
       <span class="field-label">Tempo médio para zerar</span>
@@ -643,7 +659,7 @@ function openGame(game, result, back) {
 
     <div class="actions">
       <button class="btn btn-primary" id="save">${isNew ? "Adicionar à biblioteca" : "Salvar alterações"}</button>
-      ${isNew ? "" : `<button class="btn btn-ghost" id="see-ach">${ICON.trophy}Ver conquistas</button>`}
+      ${isNew ? "" : `<div class="two-btns"><button class="btn btn-ghost" id="see-ach">${ICON.trophy}Conquistas</button><button class="btn btn-ghost" id="share-card">${SHARE}Compartilhar</button></div>`}
     </div>`, back);
 
   const compare = () => {
@@ -669,8 +685,29 @@ function openGame(game, result, back) {
   seg("#f-platform", "platform");
   seg("#f-status", "status", () => {
     body.querySelector("#hours-label").textContent = draft.status === "done" ? "Horas para zerar" : "Horas jogadas";
+    const df = body.querySelector("#done-field"), di = body.querySelector("#f-done");
+    df.hidden = draft.status !== "done";
+    if (draft.status === "done" && !di.value) di.value = isoDate(Date.now());
     compare();
   });
+  const doneInput = body.querySelector("#f-done");
+  doneInput.addEventListener("change", () => {
+    const v = doneInput.value;
+    draft.doneAt = v ? new Date(v + "T12:00:00").getTime() : null;
+  });
+  const sw = body.querySelector("#f-shared");
+  if (sw) sw.onclick = () => { draft.shared = draft.shared === false; sw.classList.toggle("is-on", draft.shared !== false); sw.setAttribute("aria-checked", draft.shared !== false); };
+  const sp = body.querySelector("#f-spoiler");
+  if (sp) sp.onclick = () => { draft.spoiler = !draft.spoiler; sp.classList.toggle("is-on", draft.spoiler); };
+  const ns = body.querySelector("#net-sum");
+  if (ns) netGameSummary(draft.title).then(sum => {
+    if (!ns.isConnected) return;
+    const others = sum.items.filter(r => r.uid !== auth.uid);
+    if (!others.length) { ns.textContent = "Ninguém mais avaliou esse jogo na rede ainda."; return; }
+    const rated = others.filter(r => r.rating), avg = rated.length ? rated.reduce((a, r) => a + r.rating, 0) / rated.length : 0;
+    ns.innerHTML = `${avg ? `Média da rede: <b>${fmtH(Math.round(avg * 10) / 10)}</b> <span class="minstars">${"★".repeat(Math.round(avg))}</span>, ` : ""}${others.length} ${others.length === 1 ? "avaliação" : "avaliações"}. <button class="link-btn" id="net-see" style="margin:0">Ver</button>`;
+    ns.querySelector("#net-see").onclick = () => openNetGame(keyOf(draft.title), draft.title, safeImg(covers[0]) || safeImg(covers[1]) || "", () => game ? openGame(game, null, back) : openGame(null, result, back));
+  }).catch(() => { if (ns.isConnected) ns.textContent = ""; });
   body.querySelector("#f-stars").addEventListener("click", e => {
     const b = e.target.closest("[data-v]");
     if (!b) return;
@@ -693,9 +730,15 @@ function openGame(game, result, back) {
         id: "g" + Date.now().toString(36), title: draft.title, year: draft.year, wiki: draft.wiki || "",
         steamId: steamId || null, cover: "", coverRemote: draft.covers[0] || "", coverAlts: draft.covers.slice(1),
         platform: draft.platform, status: draft.status, rating: draft.rating, review: draft.review.trim(),
-        hours: draft.hours, addedAt: Date.now(), updatedAt: Date.now()
+        hours: draft.hours, addedAt: Date.now(), updatedAt: Date.now(),
+        doneAt: draft.status === "done" ? (draft.doneAt || Date.now()) : null,
+        shared: socialReady() ? draft.shared !== false : undefined, spoiler: !!draft.spoiler, history: []
       };
+      logEvent(g, "added");
+      if (g.status !== "backlog") logEvent(g, "status", { to: g.status });
+      if (g.rating) logEvent(g, "rating", { n: g.rating });
       games.push(g);
+      syncReview(g).catch(() => toast("Salvo na estante. Não deu para publicar na rede agora."));
       saveGames();
       toast("Adicionado à biblioteca");
       refreshSearchMarks();
@@ -706,8 +749,14 @@ function openGame(game, result, back) {
         if (currentView === "library" && sheet.hidden) renderLibrary();
       });
     } else {
+      if (draft.status !== game.status) logEvent(game, "status", { to: draft.status });
+      if (draft.rating && draft.rating !== game.rating) logEvent(game, "rating", { n: draft.rating });
+      if (draft.review.trim() && !(game.review || "").trim()) logEvent(game, "review");
+      const doneAt = draft.status === "done" ? (draft.doneAt || game.doneAt || Date.now()) : game.doneAt || null;
       Object.assign(game, { platform: draft.platform, status: draft.status, rating: draft.rating,
-        review: draft.review.trim(), hours: draft.hours, updatedAt: Date.now() });
+        review: draft.review.trim(), hours: draft.hours, updatedAt: Date.now(), doneAt,
+        shared: socialReady() ? draft.shared !== false : game.shared, spoiler: !!draft.spoiler });
+      syncReview(game).catch(() => toast("Salvo. Não deu para atualizar na rede agora."));
       saveGames();
       toast("Alterações salvas");
     }
@@ -721,6 +770,7 @@ function openGame(game, result, back) {
     del.addEventListener("click", () => {
       if (!armed) { armed = true; del.textContent = "Toque de novo para remover"; setTimeout(() => { armed = false; del.textContent = "Remover"; }, 3000); return; }
       markDeleted(game.id);
+      unpublishReview(game);
       games = games.filter(g => g.id !== game.id);
       saveGames();
       if (Native && game.cover && game.cover.startsWith("file:")) Native.deleteFile(game.cover);
@@ -732,6 +782,8 @@ function openGame(game, result, back) {
   if (swap) swap.addEventListener("click", () => openCoverPicker(game));
   const seeAch = body.querySelector("#see-ach");
   if (seeAch) seeAch.addEventListener("click", () => openGameAchievements(game, () => openGame(game, null, back)));
+  const shareBtn = body.querySelector("#share-card");
+  if (shareBtn) shareBtn.addEventListener("click", () => openShareCard({ kind: "game", game }, () => openGame(game, null, back)));
 }
 
 /* --- Trocar capa --- */
@@ -1022,6 +1074,7 @@ function renderSettings() {
   const segBtns = (key, opts) => opts.map(([v, l]) => `<button class="${settings[key] === v ? "is-on" : ""}" data-set="${key}" data-val="${v}">${l}</button>`).join("");
   $("#settings").innerHTML = `
     <div class="group">${profileCardHTML()}</div>
+    ${socialSettingsHTML()}
     <div class="group">
       <h2 class="group-title">Contas de jogos</h2>
       <div class="card-list" id="accts">${accountsRowsHTML()}</div>
@@ -1107,6 +1160,7 @@ function renderSettings() {
       </div>
     </div>
     <p class="about">Backlog ${esc(APP.tag)}. Capas da Wikipédia e da Steam. Conquistas e jogadores agora vêm da Steam.</p>`;
+  wireSocialSettings();
 }
 $("#settings").addEventListener("click", e => {
   const b = e.target.closest("[data-set]");
@@ -1209,6 +1263,7 @@ const sync = { busy: false, again: false, last: store.load("backlog.lastSync.v1"
 const toArr = v => Array.isArray(v) ? v.filter(Boolean) : (v && typeof v === "object" ? Object.values(v) : []);
 
 function saveProfile() {
+  setTimeout(scheduleSocial, 0);
   profile.at = Date.now();
   store.save("backlog.profile.v1", profile);
   scheduleSync();
@@ -1373,7 +1428,7 @@ function scheduleSync() {
   clearTimeout(syncTimer);
   syncTimer = setTimeout(fullSync, 2500);
 }
-function startCloud() { if (cloudReady && auth) fullSync(); }
+function startCloud() { if (cloudReady && auth) { fullSync(); checkSocialMe().then(() => { if (socialReady()) scheduleSocial(); }); } }
 
 /* --- Avatar --- */
 function renderAvatarButton() {
@@ -1513,7 +1568,7 @@ function openProfile(showEmail) {
         </div>
         <div class="acct-opt ${auth ? "is-on" : ""}">
           <span class="acct-ico">${GOOGLE_G}</span>
-          <div><b>Conta Google</b><span id="acct-status">${auth ? syncLine() : "Salva na nuvem e sincroniza entre celulares."}</span></div>
+          <div><b>${googleReady || !cloudReady ? "Conta Google" : "Conta na nuvem"}</b><span id="acct-status">${auth ? syncLine() : "Salva na nuvem, sincroniza entre celulares e libera a rede."}</span></div>
           ${auth ? `<span class="tag">Conectada</span>` : ""}
         </div>
       </div>
@@ -1524,9 +1579,11 @@ function openProfile(showEmail) {
         : googleReady ? `
           <button class="btn btn-google" id="a-google">${GOOGLE_G}Entrar com Google</button>
           <button class="link-btn" id="a-email-toggle" style="justify-self:center">Prefiro entrar com e-mail</button>`
+        : cloudReady ? `
+          <button class="btn btn-primary" id="a-email-toggle">Entrar com e-mail</button>`
         : `
           <button class="btn btn-google" disabled>${GOOGLE_G}Entrar com Google</button>
-          <p class="panel-note" style="margin:0">O login com Google ainda não foi ativado nesta versão. Enquanto isso, o perfil offline guarda tudo neste celular.</p>`}
+          <p class="panel-note" style="margin:0">O login na nuvem ainda não foi ativado nesta versão. Enquanto isso, o perfil offline guarda tudo neste celular.</p>`}
       </div>
       ${!auth && cloudReady ? `
         <form class="email-form" id="a-email" ${showEmail ? "" : "hidden"}>
@@ -2038,7 +2095,11 @@ async function importFrom(src, onlyPlayed) {
       g.sources = { ...(g.sources || {}), [src]: info };
       if (hours > (parseFloat(g.hours) || 0)) g.hours = String(hours);
       if (!g.steamId && it.steamId) g.steamId = it.steamId;
-      if (it.complete && g.status !== "done") g.status = "done";
+      if (it.complete && g.status !== "done") {
+        g.status = "done";
+        g.doneAt = g.doneAt || it.last || Date.now();
+        logEvent(g, "status", { to: "done", approx: true });
+      }
       g.updatedAt = Date.now();
       updated++;
     } else {
@@ -2048,7 +2109,8 @@ async function importFrom(src, onlyPlayed) {
         cover: "", coverRemote: it.covers[0] || "", coverAlts: it.covers.slice(1),
         platform: it.platform, status: it.complete ? "done" : (it.last && Date.now() - it.last < month ? "playing" : "backlog"),
         rating: 0, review: "", hours: hours ? String(hours) : "", sources: { [src]: info },
-        addedAt: Date.now(), updatedAt: Date.now()
+        addedAt: Date.now(), updatedAt: Date.now(), doneAt: it.complete ? (it.last || null) : null,
+        history: [{ t: Date.now(), type: "imported", src }].concat(it.complete && it.last ? [{ t: it.last, type: "status", to: "done", approx: true }] : [])
       });
       added++;
     }
@@ -2177,6 +2239,1029 @@ function openAccount(src) {
     toast(`${info.name} desconectado e sessão apagada. Os jogos importados continuam na biblioteca.`);
     openAccount(src);
   });
+}
+
+/* =========================================================
+   Histórico de cada jogo (base da linha do tempo e das metas)
+   ========================================================= */
+function logEvent(g, type, extra) {
+  g.history = Array.isArray(g.history) ? g.history : toArr(g.history);
+  g.history.push({ t: Date.now(), type, ...(extra || {}) });
+  if (g.history.length > 60) g.history = g.history.slice(-60);
+}
+function gameEvents(g) {
+  const h = toArr(g.history);
+  const list = h.slice();
+  if (!list.some(e => e.type === "added" || e.type === "imported") && g.addedAt) list.unshift({ t: g.addedAt, type: "added" });
+  if (g.status === "done" && g.doneAt && !list.some(e => e.type === "status" && e.to === "done")) list.push({ t: g.doneAt, type: "status", to: "done" });
+  return list;
+}
+const yearOf = t => new Date(t).getFullYear();
+const doneIn = y => games.filter(g => g.status === "done" && g.doneAt && yearOf(g.doneAt) === y);
+const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const fmtDay = t => { const d = new Date(t); return `${d.getDate()} ${MONTHS[d.getMonth()]}`; };
+const isoDate = t => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+
+const DICE = '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.2" fill="currentColor"/><circle cx="15" cy="15" r="1.2" fill="currentColor"/><circle cx="15" cy="9" r="1.2" fill="currentColor"/><circle cx="9" cy="15" r="1.2" fill="currentColor"/></svg>';
+const FLAG = '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>';
+const CLOCK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>';
+const SHARE = '<svg viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4"/><path d="M5 13v5.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V13"/></svg>';
+
+/* --- Bloco extra da Biblioteca: meta do ano e atalhos --- */
+function renderLibExtras() {
+  const box = $("#lib-extras");
+  if (!box) return;
+  if (!games.length) { box.innerHTML = ""; return; }
+  const y = new Date().getFullYear();
+  const goal = profile.goals && profile.goals[y];
+  box.innerHTML = `
+    ${goal ? goalCardHTML(y, goal) : ""}
+    <div class="quick">
+      <button class="quick-btn" id="q-roulette">${DICE}<span>Sortear jogo</span></button>
+      <button class="quick-btn" id="q-goal">${FLAG}<span>${goal ? "Meta do ano" : "Criar meta"}</span></button>
+      <button class="quick-btn" id="q-timeline">${CLOCK}<span>Linha do tempo</span></button>
+    </div>`;
+  box.querySelector("#q-roulette").onclick = () => openRoulette();
+  box.querySelector("#q-goal").onclick = () => openGoals();
+  box.querySelector("#q-timeline").onclick = () => openTimeline();
+  const gc = box.querySelector(".goal-card");
+  if (gc) gc.onclick = () => openGoals();
+}
+
+/* =========================================================
+   Metas do ano
+   ========================================================= */
+function goalPace(y, target, done) {
+  const start = new Date(y, 0, 1).getTime(), end = new Date(y + 1, 0, 1).getTime();
+  const now = Math.min(Math.max(Date.now(), start), end);
+  const frac = (now - start) / (end - start);
+  const expected = target * frac;
+  const daysLeft = Math.max(0, Math.ceil((end - now) / 86400000));
+  const left = Math.max(0, target - done);
+  if (done >= target) return `Meta batida! ${done > target ? `Você já passou ${done - target} da meta.` : "Agora é só lucro."}`;
+  if (y < new Date().getFullYear()) return `Faltaram ${left} para bater a meta.`;
+  const diff = Math.round(done - expected);
+  const rhythm = daysLeft && left ? `Faltam ${left} em ${daysLeft} dias, cerca de 1 a cada ${Math.max(1, Math.round(daysLeft / left))} dias.` : "";
+  if (diff >= 1) return `Você está ${diff} ${diff === 1 ? "jogo" : "jogos"} à frente do ritmo. ${rhythm}`;
+  if (diff <= -1) return `Você está ${-diff} ${diff === -1 ? "jogo" : "jogos"} atrás do ritmo. ${rhythm}`;
+  return `Você está no ritmo. ${rhythm}`;
+}
+function monthBarsHTML(y) {
+  const counts = Array(12).fill(0);
+  doneIn(y).forEach(g => counts[new Date(g.doneAt).getMonth()]++);
+  const max = Math.max(1, ...counts);
+  const cur = new Date().getFullYear() === y ? new Date().getMonth() : -1;
+  return `<div class="months" role="img" aria-label="Jogos zerados por mês">${counts.map((c, i) => `
+    <div class="mbar ${i === cur ? "is-cur" : ""}">
+      <span class="mval">${c || ""}</span>
+      <span class="mcol"><i style="height:${c ? Math.max(8, c / max * 100) : 0}%"></i></span>
+      <span class="mlab">${MONTHS[i][0].toUpperCase()}</span>
+    </div>`).join("")}</div>`;
+}
+function goalCardHTML(y, goal) {
+  const done = doneIn(y).length;
+  const pct = Math.min(100, done / goal.games * 100);
+  return `<button class="goal-card">
+    <div class="goal-top"><span>Meta de ${y}</span><span class="goal-pct">${Math.round(pct)}%</span></div>
+    <div class="goal-num"><b>${done}</b><span>de ${goal.games} zerados</span></div>
+    <div class="progress-track"><div style="width:${pct}%"></div></div>
+    <p class="goal-pace">${esc(goalPace(y, goal.games, done))}</p>
+  </button>`;
+}
+function openGoals(year) {
+  const y = year || new Date().getFullYear();
+  profile.goals = profile.goals || {};
+  const goal = profile.goals[y];
+  const list = doneIn(y).sort((a, b) => b.doneAt - a.doneAt);
+  const noDate = games.filter(g => g.status === "done" && !g.doneAt).length;
+  const target = goal ? goal.games : 12;
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Fechar">${ICON.close}</button>
+      <div class="year-nav"><button class="icon-btn" id="g-prev" aria-label="Ano anterior">${ICON.back}</button><b>${y}</b>
+      <button class="icon-btn" id="g-next" aria-label="Próximo ano" ${y >= new Date().getFullYear() + 1 ? "disabled" : ""}>${ICON.chev}</button></div></div>
+    <h2 class="hero-title" style="margin-top:18px">Meta de ${y}</h2>
+    ${goal ? `
+      <div class="goal-big"><b>${list.length}</b><span>de ${goal.games} jogos zerados</span></div>
+      <div class="progress-track" style="height:12px"><div style="width:${Math.min(100, list.length / goal.games * 100)}%"></div></div>
+      <p class="hero-sub">${esc(goalPace(y, goal.games, list.length))}</p>`
+    : `<p class="hero-sub">Escolha quantos jogos você quer zerar em ${y}. O app conta sozinho cada jogo que você marcar como Zerado.</p>`}
+
+    <div class="field">
+      <span class="field-label">Quantos jogos zerar</span>
+      <div class="hours-field">
+        <div class="stepper">
+          <button data-gstep="-1" aria-label="Menos um">−</button>
+          <input id="g-target" type="number" inputmode="numeric" min="1" max="365" value="${target}">
+          <button data-gstep="1" aria-label="Mais um">+</button>
+        </div>
+        <span class="hours-hint">jogos em ${y}</span>
+      </div>
+      <div class="actions" style="margin-top:14px">
+        <button class="btn btn-primary" id="g-save">${goal ? "Atualizar meta" : "Criar meta"}</button>
+        ${goal ? `<button class="btn btn-ghost" id="g-share">${SHARE}Compartilhar meta</button>
+        <button class="link-btn" id="g-del" style="justify-self:center;color:var(--accent-2)">Apagar meta</button>` : ""}
+      </div>
+    </div>
+
+    <div class="panel">
+      <span class="field-label">Zerados por mês</span>
+      ${monthBarsHTML(y)}
+    </div>
+
+    <div class="field">
+      <span class="field-label">Zerados em ${y} <small class="count">${list.length}</small></span>
+      ${list.length ? `<ul class="rows" style="padding:0">${list.map(g => `<li><button class="row" data-gid="${g.id}">
+          ${coverHTML(gameCovers(g), g.title)}
+          <div><div class="row-title">${esc(g.title)}</div>
+          <div class="row-sub">${fmtDay(g.doneAt)}${g.hours ? `, ${fmtH(g.hours)} h` : ""}${g.rating ? ` <span class="minstars">${"★".repeat(g.rating)}</span>` : ""}</div></div>
+          <span class="row-chev">${ICON.chev}</span></button></li>`).join("")}</ul>`
+        : `<p class="hero-sub" style="margin:0">Nenhum jogo zerado em ${y} ainda.</p>`}
+      ${noDate ? `<p class="panel-note">${noDate} ${noDate === 1 ? "jogo zerado não tem" : "jogos zerados não têm"} data. Abra o jogo e preencha "Zerado em" para ${noDate === 1 ? "ele contar" : "eles contarem"} na meta.</p>` : ""}
+    </div>`);
+  const input = body.querySelector("#g-target");
+  body.querySelectorAll("[data-gstep]").forEach(b => b.onclick = () => { input.value = Math.max(1, (parseInt(input.value, 10) || 0) + +b.dataset.gstep); });
+  body.querySelector("#g-save").onclick = () => {
+    const n = Math.max(1, Math.min(365, parseInt(input.value, 10) || 0));
+    profile.goals[y] = { games: n, at: Date.now() };
+    saveProfile(); renderLibrary();
+    toast(`Meta de ${y}: zerar ${n} ${n === 1 ? "jogo" : "jogos"}`);
+    openGoals(y);
+  };
+  const del = body.querySelector("#g-del");
+  if (del) del.onclick = () => { delete profile.goals[y]; saveProfile(); renderLibrary(); toast("Meta apagada"); openGoals(y); };
+  const sh = body.querySelector("#g-share");
+  if (sh) sh.onclick = () => openShareCard({ kind: "goal", year: y }, () => openGoals(y));
+  body.querySelector("#g-prev").onclick = () => openGoals(y - 1);
+  const nx = body.querySelector("#g-next");
+  if (nx && !nx.disabled) nx.onclick = () => openGoals(y + 1);
+  body.querySelectorAll("[data-gid]").forEach(b => b.onclick = () => openGame(games.find(g => g.id === b.dataset.gid), null, () => openGoals(y)));
+}
+
+/* =========================================================
+   Linha do tempo
+   ========================================================= */
+const SRC_NAME = { steam: "Steam", xbox: "Xbox", psn: "PlayStation" };
+function eventText(e, g) {
+  const t = `<b>${esc(g.title)}</b>`;
+  if (e.type === "added") return `Adicionou ${t} à estante`;
+  if (e.type === "imported") return `Importou ${t} da ${esc(SRC_NAME[e.src] || e.src || "conta")}`;
+  if (e.type === "rating") return `Deu ${e.n} ${e.n === 1 ? "estrela" : "estrelas"} para ${t}`;
+  if (e.type === "review") return `Escreveu uma análise de ${t}`;
+  if (e.type === "status") return ({ playing: `Começou a jogar ${t}`, done: `Zerou ${t}`, dropped: `Abandonou ${t}`, backlog: `Colocou ${t} na lista` })[e.to] || t;
+  return t;
+}
+let tlFilter = "all";
+function openTimeline() {
+  const all = [];
+  games.forEach(g => gameEvents(g).forEach(e => all.push({ e, g })));
+  all.sort((a, b) => b.e.t - a.e.t);
+  const keep = ({ e }) => tlFilter === "all" ? true
+    : tlFilter === "done" ? e.type === "status" && e.to === "done"
+    : tlFilter === "start" ? e.type === "status" && e.to === "playing"
+    : e.type === "rating" || e.type === "review";
+  const items = all.filter(keep);
+  const groups = [];
+  items.forEach(it => {
+    const d = new Date(it.e.t);
+    const label = d.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+    if (!groups.length || groups[groups.length - 1].label !== label) groups.push({ label, list: [] });
+    groups[groups.length - 1].list.push(it);
+  });
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Fechar">${ICON.close}</button></div>
+    <h2 class="hero-title" style="margin-top:18px">Linha do tempo</h2>
+    <p class="hero-sub">Tudo o que aconteceu na sua estante, do mais recente para o mais antigo.</p>
+    <div class="chips" style="padding-left:0;padding-right:0" id="tl-f">${[["all", "Tudo"], ["done", "Zerados"], ["start", "Começados"], ["notes", "Notas e análises"]].map(([id, l]) =>
+      `<button class="chip ${tlFilter === id ? "is-on" : ""}" data-tf="${id}">${l}</button>`).join("")}</div>
+    ${groups.length ? groups.map(gr => `
+      <div class="tl-month">${esc(gr.label.charAt(0).toUpperCase() + gr.label.slice(1))}</div>
+      <ol class="tl">${gr.list.map(({ e, g }) => `<li class="tl-item tl-${e.type === "status" ? e.to : e.type}">
+        <span class="tl-dot"></span>
+        <button class="tl-body" data-gid="${g.id}">
+          <span class="tl-cover">${coverHTML(gameCovers(g), g.title)}</span>
+          <span class="tl-text"><span>${eventText(e, g)}</span><small>${fmtDay(e.t)}${e.approx ? ", data aproximada" : ""}${e.type === "status" && e.to === "done" && g.hours ? `, ${fmtH(g.hours)} h` : ""}</small></span>
+        </button></li>`).join("")}</ol>`).join("")
+    : `<p class="hero-sub" style="margin-top:20px">Nada por aqui ainda. Conforme você começa, zera ou avalia jogos, a história aparece aqui.</p>`}`);
+  body.querySelector("#tl-f").onclick = e => { const b = e.target.closest("[data-tf]"); if (b) { tlFilter = b.dataset.tf; const y = body.scrollTop; openTimeline(); body.scrollTop = y; } };
+  body.querySelectorAll("[data-gid]").forEach(b => b.onclick = () => openGame(games.find(g => g.id === b.dataset.gid), null, openTimeline));
+}
+
+/* =========================================================
+   Roleta do backlog
+   ========================================================= */
+const ROULETTE_TIMES = [["any", "Qualquer"], ["s", "Até 10 h"], ["m", "10 a 30 h"], ["l", "30 a 60 h"], ["xl", "Mais de 60 h"]];
+let rouletteOpts = { time: "any", platform: "", dropped: false };
+const estHours = g => { const p = findPopular(g.title, g.wiki); return p ? p.main : null; };
+function roulettePool() {
+  const o = rouletteOpts;
+  return games.filter(g => {
+    if (!(g.status === "backlog" || (o.dropped && g.status === "dropped"))) return false;
+    if (o.platform && g.platform !== o.platform) return false;
+    if (o.time === "any") return true;
+    const h = estHours(g);
+    if (h == null) return false;
+    return o.time === "s" ? h <= 10 : o.time === "m" ? h > 10 && h <= 30 : o.time === "l" ? h > 30 && h <= 60 : h > 60;
+  });
+}
+function openRoulette(result) {
+  const pool = roulettePool();
+  const unknown = rouletteOpts.time !== "any" ? games.filter(g => g.status === "backlog" && estHours(g) == null).length : 0;
+  const plats = [...new Set(games.map(g => g.platform).filter(Boolean))];
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Fechar">${ICON.close}</button></div>
+    <h2 class="hero-title" style="margin-top:18px">Roleta do backlog</h2>
+    <p class="hero-sub">Não sabe o que jogar? Diga quanto tempo tem e deixa que o app escolhe da sua lista.</p>
+
+    <div class="slot ${result ? "has-result" : ""}" id="slot">
+      ${result ? coverHTML(gameCovers(result), result.title) : `<div class="slot-empty">${DICE}<span>${pool.length} ${pool.length === 1 ? "jogo entra" : "jogos entram"} no sorteio</span></div>`}
+    </div>
+    <div class="slot-title" id="slot-title">${result ? esc(result.title) : ""}</div>
+    <div class="slot-sub" id="slot-sub">${result ? rouletteSub(result) : ""}</div>
+
+    <div class="actions" id="r-actions">
+      ${result ? `
+        <button class="btn btn-primary" id="r-start">Começar a jogar</button>
+        <div class="two-btns"><button class="btn btn-ghost" id="r-again">${DICE}Sortear de novo</button><button class="btn btn-ghost" id="r-open">Ver jogo</button></div>`
+      : `<button class="btn btn-primary" id="r-spin" ${pool.length ? "" : "disabled"}>${DICE}Sortear</button>`}
+    </div>
+
+    <div class="field">
+      <span class="field-label">Quanto tempo você tem</span>
+      <div class="seg" id="r-time">${ROULETTE_TIMES.map(([v, l]) => `<button class="chip ${rouletteOpts.time === v ? "is-on" : ""}" data-v="${v}">${l}</button>`).join("")}</div>
+      ${unknown ? `<p class="panel-note">${unknown} ${unknown === 1 ? "jogo sem tempo médio conhecido fica" : "jogos sem tempo médio conhecido ficam"} de fora quando você filtra por tempo.</p>` : ""}
+    </div>
+    ${plats.length > 1 ? `<div class="field">
+      <span class="field-label">Plataforma</span>
+      <div class="seg" id="r-plat"><button class="chip ${!rouletteOpts.platform ? "is-on" : ""}" data-v="">Todas</button>${plats.map(p =>
+        `<button class="chip ${rouletteOpts.platform === p ? "is-on" : ""}" data-v="${p}">${platLabel(p)}</button>`).join("")}</div>
+    </div>` : ""}
+    <div class="field">
+      <button class="chip ${rouletteOpts.dropped ? "is-on" : ""}" id="r-dropped">Incluir jogos abandonados</button>
+    </div>
+    ${!pool.length ? `<p class="panel-note">Nenhum jogo da lista "Quero jogar" bate com esses filtros. Mude o tempo ou a plataforma.</p>` : ""}`);
+
+  const refresh = () => { const y = body.scrollTop; openRoulette(); body.scrollTop = y; };
+  const pick = (sel, key) => { const el = body.querySelector(sel); if (el) el.onclick = e => { const b = e.target.closest("[data-v]"); if (b) { rouletteOpts[key] = b.dataset.v; refresh(); } }; };
+  pick("#r-time", "time"); pick("#r-plat", "platform");
+  body.querySelector("#r-dropped").onclick = () => { rouletteOpts.dropped = !rouletteOpts.dropped; refresh(); };
+  const spinBtn = body.querySelector("#r-spin");
+  if (spinBtn) spinBtn.onclick = () => spin(pool);
+  if (result) {
+    body.querySelector("#r-again").onclick = () => spin(roulettePool(), result);
+    body.querySelector("#r-open").onclick = () => openGame(result, null, () => openRoulette(result));
+    body.querySelector("#r-start").onclick = () => {
+      if (result.status !== "playing") { logEvent(result, "status", { to: "playing" }); result.status = "playing"; }
+      result.updatedAt = Date.now(); saveGames(); renderLibrary();
+      toast(`Bom jogo! ${result.title} foi para Jogando agora`);
+      closeSheet();
+    };
+  }
+}
+function rouletteSub(g) {
+  const h = estHours(g);
+  return [platLabel(g.platform), h != null ? `cerca de ${fmtH(h)} h de história` : "tempo médio desconhecido"].filter(Boolean).map(esc).join(", ");
+}
+function spin(pool, avoid) {
+  if (!pool.length) return;
+  const options = pool.length > 1 && avoid ? pool.filter(g => g.id !== avoid.id) : pool;
+  const chosen = options[Math.floor(Math.random() * options.length)];
+  const slot = body.querySelector("#slot"), title = body.querySelector("#slot-title"), sub = body.querySelector("#slot-sub");
+  const acts = body.querySelector("#r-actions");
+  if (acts) acts.querySelectorAll("button").forEach(b => b.disabled = true);
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce || pool.length === 1) return openRoulette(chosen);
+  slot.classList.add("is-spinning");
+  const steps = 22;
+  let i = 0;
+  const tick = () => {
+    const g = i === steps ? chosen : pool[Math.floor(Math.random() * pool.length)];
+    slot.innerHTML = coverHTML(gameCovers(g), g.title);
+    title.textContent = g.title;
+    sub.textContent = "";
+    if (i === steps) { slot.classList.remove("is-spinning"); setTimeout(() => openRoulette(chosen), 380); return; }
+    i++;
+    setTimeout(tick, 45 + Math.pow(i / steps, 3) * 320);
+  };
+  tick();
+}
+
+/* =========================================================
+   Cartão de compartilhar (imagem para Stories ou post)
+   ========================================================= */
+async function imgToData(url) {
+  if (!url) return null;
+  if (url.startsWith("data:")) return url;
+  try {
+    if (Native && Native.imageData) return await callNative("imageData", url);
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const blob = await r.blob();
+    return await new Promise(res => { const f = new FileReader(); f.onload = () => res(f.result); f.onerror = () => res(null); f.readAsDataURL(blob); });
+  } catch (_) { return null; }
+}
+const loadImage = src => new Promise(res => { if (!src) return res(null); const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+async function firstImage(urls) {
+  for (const u of urls.filter(Boolean)) { const img = await loadImage(await imgToData(u)); if (img && img.naturalWidth > 40) return img; }
+  return null;
+}
+function rr(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  if (ctx.roundRect) { ctx.roundRect(x, y, w, h, r); return; }
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function drawCover(ctx, img, x, y, w, h) {
+  const s = Math.max(w / img.naturalWidth, h / img.naturalHeight);
+  const iw = img.naturalWidth * s, ih = img.naturalHeight * s;
+  ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
+}
+function setFont(ctx, weight, size, stretch) {
+  ctx.font = `${weight} ${stretch || "normal"} ${size}px Archivo, Roboto, sans-serif`;
+  try { ctx.fontStretch = stretch || "normal"; } catch (_) {}
+}
+function wrap(ctx, text, maxW, maxLines) {
+  const words = String(text || "").replace(/\s+/g, " ").trim().split(" ");
+  const lines = [];
+  let line = "";
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (ctx.measureText(test).width <= maxW || !line) line = test;
+    else { lines.push(line); line = w; }
+    if (lines.length === maxLines) break;
+  }
+  if (lines.length < maxLines && line) lines.push(line);
+  const used = lines.join(" ").split(" ").length;
+  if (used < words.length && lines.length) {
+    let last = lines[lines.length - 1];
+    while (last && ctx.measureText(last + "…").width > maxW) last = last.slice(0, -1);
+    lines[lines.length - 1] = last.replace(/[\s,.;:]+$/, "") + "…";
+  }
+  return lines;
+}
+function drawStar(ctx, cx, cy, r) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + i * Math.PI / 5, rad = i % 2 ? r * 0.45 : r;
+    ctx.lineTo(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad);
+  }
+  ctx.closePath(); ctx.fill();
+}
+function pills(ctx, items, x, y, align, size) {
+  setFont(ctx, 700, size);
+  const pad = size * 0.7, h = size * 2, gap = size * 0.5;
+  const widths = items.map(it => ctx.measureText(it.text).width + pad * 2);
+  const total = widths.reduce((a, b) => a + b, 0) + gap * (items.length - 1);
+  let cx = align === "center" ? x - total / 2 : x;
+  items.forEach((it, i) => {
+    ctx.fillStyle = it.bg; rr(ctx, cx, y, widths[i], h, h / 2); ctx.fill();
+    ctx.fillStyle = it.fg; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+    ctx.fillText(it.text, cx + pad, y + h / 2 + 1);
+    cx += widths[i] + gap;
+  });
+  ctx.textBaseline = "alphabetic";
+  return h;
+}
+async function avatarImage() {
+  const mode = avatarMode();
+  const src = mode === "photo" ? profile.photoData : mode === "google" && auth ? auth.photo : "";
+  return src ? firstImage([src]) : null;
+}
+function drawAvatar(ctx, img, x, y, d) {
+  ctx.save(); ctx.beginPath(); ctx.arc(x + d / 2, y + d / 2, d / 2, 0, Math.PI * 2); ctx.clip();
+  if (img) drawCover(ctx, img, x, y, d, d);
+  else {
+    ctx.fillStyle = profile.color || "#FFD21F"; ctx.fillRect(x, y, d, d);
+    const ini = (profile.name || "?").trim().split(/\s+/).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+    setFont(ctx, 900, d * 0.42, "condensed"); ctx.fillStyle = "#111"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(ini, x + d / 2, y + d / 2 + 2); ctx.textBaseline = "alphabetic";
+  }
+  ctx.restore();
+}
+function cardColors() {
+  const cs = getComputedStyle(document.documentElement);
+  return { a: cs.getPropertyValue("--accent").trim() || "#FFD21F", a2: cs.getPropertyValue("--accent-2").trim() || "#F03A2E",
+    on: cs.getPropertyValue("--on-accent").trim() || "#0B0B0C", on2: cs.getPropertyValue("--on-accent-2").trim() || "#fff" };
+}
+function drawBackdrop(ctx, img, W, H) {
+  ctx.fillStyle = "#0B0B0C"; ctx.fillRect(0, 0, W, H);
+  if (img) {
+    ctx.save(); ctx.filter = "blur(60px) brightness(0.55) saturate(1.25)";
+    drawCover(ctx, img, -120, -120, W + 240, H + 240); ctx.restore();
+  }
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "rgba(11,11,12,0.25)"); g.addColorStop(0.55, "rgba(11,11,12,0.7)"); g.addColorStop(1, "rgba(11,11,12,0.96)");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+function drawBrand(ctx, x, y, c) {
+  ctx.fillStyle = "#F6F4EE"; rr(ctx, x, y - 34, 14, 40, 3); ctx.fill();
+  ctx.fillStyle = c.a; rr(ctx, x + 20, y - 40, 14, 46, 3); ctx.fill();
+  ctx.save(); ctx.translate(x + 46, y + 6); ctx.rotate(0.16); ctx.fillStyle = c.a2; rr(ctx, 0, -40, 14, 40, 3); ctx.fill(); ctx.restore();
+  setFont(ctx, 900, 44, "condensed"); ctx.fillStyle = "#F6F4EE"; ctx.textAlign = "left";
+  ctx.fillText("Backlog", x + 78, y);
+}
+async function drawFooter(ctx, W, H, c) {
+  const av = await avatarImage();
+  const y = H - 150;
+  drawAvatar(ctx, av, 72, y, 76);
+  setFont(ctx, 800, 36); ctx.fillStyle = "#F6F4EE"; ctx.textAlign = "left";
+  ctx.fillText(profile.name || "Meu backlog", 168, y + 34);
+  setFont(ctx, 500, 28); ctx.fillStyle = "rgba(246,244,238,0.6)";
+  ctx.fillText(socialMe && socialMe.handle ? "@" + socialMe.handle : "no app Backlog", 168, y + 70);
+  ctx.strokeStyle = "rgba(246,244,238,0.15)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(72, y - 36); ctx.lineTo(W - 72, y - 36); ctx.stroke();
+}
+async function drawGameCard(g, format) {
+  const W = 1080, H = format === "post" ? 1350 : 1920;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d");
+  try { await Promise.all([document.fonts.load("900 90px Archivo"), document.fonts.load("500 40px Archivo"), document.fonts.load("700 30px Archivo")]); } catch (_) {}
+  const c = cardColors();
+  const img = await firstImage(gameCovers(g));
+  drawBackdrop(ctx, img, W, H);
+  drawBrand(ctx, 72, 124, c);
+  const st = statusOf(g.status);
+  const tags = [{ text: st.label, bg: g.status === "done" ? c.a : g.status === "playing" ? c.a2 : "rgba(246,244,238,0.14)", fg: g.status === "done" ? c.on : g.status === "playing" ? c.on2 : "#F6F4EE" }];
+  if (g.hours) tags.push({ text: `${fmtH(g.hours)} h`, bg: "rgba(246,244,238,0.14)", fg: "#F6F4EE" });
+  if (g.platform) tags.push({ text: platLabel(g.platform), bg: "rgba(246,244,238,0.14)", fg: "#F6F4EE" });
+
+  const coverBox = (x, y, w, h) => {
+    ctx.save(); ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 70; ctx.shadowOffsetY = 34;
+    ctx.fillStyle = "#1f1f22"; rr(ctx, x, y, w, h, 30); ctx.fill(); ctx.restore();
+    ctx.save(); rr(ctx, x, y, w, h, 30); ctx.clip();
+    if (img) drawCover(ctx, img, x, y, w, h);
+    else { setFont(ctx, 900, 64, "condensed"); ctx.fillStyle = "#6d6a63"; ctx.textAlign = "left"; wrap(ctx, g.title, w - 60, 4).forEach((l, i) => ctx.fillText(l, x + 30, y + h - 40 - (3 - i) * 70)); }
+    ctx.restore();
+  };
+  const starsRow = (cx, y, size, align) => {
+    const gap = size * 0.28, total = 5 * size + 4 * gap;
+    let x = align === "center" ? cx - total / 2 : cx;
+    for (let i = 1; i <= 5; i++) { ctx.fillStyle = i <= (g.rating || 0) ? c.a : "rgba(246,244,238,0.18)"; drawStar(ctx, x + size / 2, y, size / 2); x += size + gap; }
+  };
+  const quote = (x, y, w, lines, align) => {
+    if (!g.review) return y;
+    setFont(ctx, 900, 120, "condensed"); ctx.fillStyle = c.a2; ctx.textAlign = align;
+    ctx.fillText("“", align === "center" ? W / 2 : x - 6, y + 96);
+    setFont(ctx, 500, 40); ctx.fillStyle = "rgba(246,244,238,0.9)";
+    const ls = wrap(ctx, g.review, w, lines);
+    ls.forEach((l, i) => ctx.fillText(l, align === "center" ? W / 2 : x, y + 110 + i * 56));
+    return y + 110 + ls.length * 56;
+  };
+
+  if (format === "post") {
+    const cw = 420, ch = 588;
+    coverBox(72, 196, cw, ch);
+    const tx = 72 + cw + 56, tw = W - tx - 72;
+    setFont(ctx, 900, 84, "condensed"); ctx.fillStyle = "#F6F4EE"; ctx.textAlign = "left";
+    const tl = wrap(ctx, g.title, tw, 4);
+    tl.forEach((l, i) => ctx.fillText(l, tx, 290 + i * 84));
+    let y = 290 + tl.length * 84 + 10;
+    if (g.rating) { starsRow(tx, y + 24, 54, "left"); y += 80; }
+    pills(ctx, tags.slice(0, 2), tx, y, "left", 30);
+    if (tags[2]) pills(ctx, [tags[2]], tx, y + 76, "left", 30);
+    quote(72, 830, W - 144, 5, "left");
+  } else {
+    const cw = 560, ch = 784;
+    coverBox((W - cw) / 2, 200, cw, ch);
+    setFont(ctx, 900, 96, "condensed"); ctx.fillStyle = "#F6F4EE"; ctx.textAlign = "center";
+    const tl = wrap(ctx, g.title, W - 144, 2);
+    tl.forEach((l, i) => ctx.fillText(l, W / 2, 1110 + i * 96));
+    let y = 1110 + (tl.length - 1) * 96 + 50;
+    if (g.rating) { starsRow(W / 2, y + 34, 64, "center"); y += 90; }
+    pills(ctx, tags, W / 2, y + 10, "center", 32);
+    quote(W / 2, y + 110, W - 220, 4, "center");
+  }
+  await drawFooter(ctx, W, H, c);
+  return cv.toDataURL("image/png");
+}
+async function drawGoalCard(y, format) {
+  const W = 1080, H = format === "post" ? 1350 : 1920;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d");
+  try { await document.fonts.load("900 200px Archivo"); } catch (_) {}
+  const c = cardColors();
+  const goal = (profile.goals || {})[y] || { games: 0 };
+  const list = doneIn(y).sort((a, b) => a.doneAt - b.doneAt);
+  drawBackdrop(ctx, null, W, H);
+  drawBrand(ctx, 72, 124, c);
+  setFont(ctx, 700, 40); ctx.fillStyle = "rgba(246,244,238,0.7)"; ctx.textAlign = "left";
+  ctx.fillText(`Meta de ${y}`, 72, 250);
+  setFont(ctx, 900, 260, "extra-condensed"); ctx.fillStyle = c.a;
+  const num = String(list.length);
+  ctx.fillText(num, 64, 480);
+  const nw = ctx.measureText(num).width;
+  setFont(ctx, 800, 64, "condensed"); ctx.fillStyle = "#F6F4EE";
+  ctx.fillText(`/ ${goal.games}`, 64 + nw + 20, 480);
+  setFont(ctx, 600, 36); ctx.fillStyle = "rgba(246,244,238,0.75)";
+  ctx.fillText(list.length === 1 ? "jogo zerado" : "jogos zerados", 72, 540);
+  const pct = goal.games ? Math.min(1, list.length / goal.games) : 0;
+  ctx.fillStyle = "rgba(246,244,238,0.14)"; rr(ctx, 72, 590, W - 144, 22, 11); ctx.fill();
+  ctx.fillStyle = c.a; rr(ctx, 72, 590, Math.max(22, (W - 144) * pct), 22, 11); ctx.fill();
+  const cols = format === "post" ? 5 : 4, gap = 22, cw = (W - 144 - gap * (cols - 1)) / cols, ch = cw * 1.4;
+  const rows = Math.max(1, Math.floor(((H - 260) - 680) / (ch + gap)));
+  const shown = list.slice(-cols * rows);
+  const imgs = await Promise.all(shown.map(g => firstImage(gameCovers(g))));
+  shown.forEach((g, i) => {
+    const x = 72 + (i % cols) * (cw + gap), yy = 680 + Math.floor(i / cols) * (ch + gap);
+    ctx.save(); rr(ctx, x, yy, cw, ch, 18); ctx.clip();
+    ctx.fillStyle = "#1f1f22"; ctx.fillRect(x, yy, cw, ch);
+    if (imgs[i]) drawCover(ctx, imgs[i], x, yy, cw, ch);
+    ctx.restore();
+  });
+  if (!shown.length) { setFont(ctx, 600, 40); ctx.fillStyle = "rgba(246,244,238,0.6)"; ctx.fillText("Bora começar!", 72, 720); }
+  await drawFooter(ctx, W, H, c);
+  return cv.toDataURL("image/png");
+}
+
+let shareFormat = "story";
+async function openShareCard(what, back) {
+  const g = what.kind === "game" ? what.game : null;
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button></div>
+    <h2 class="hero-title" style="margin-top:18px">Compartilhar</h2>
+    <div class="segmented" style="margin:16px 0 0" id="sh-fmt">
+      <button class="${shareFormat === "story" ? "is-on" : ""}" data-v="story">Stories</button>
+      <button class="${shareFormat === "post" ? "is-on" : ""}" data-v="post">Post</button>
+    </div>
+    <div class="card-preview ${shareFormat}" id="sh-prev"><div class="skeleton" style="width:100%;height:100%"><div class="cover" style="width:100%;height:100%;aspect-ratio:auto"></div></div></div>
+    <div class="actions">
+      <button class="btn btn-primary" id="sh-go" disabled>${SHARE}Compartilhar</button>
+      <button class="btn btn-ghost" id="sh-save" disabled>Salvar na galeria</button>
+    </div>
+    ${g && !g.review ? `<p class="panel-note">Dica: escreva uma análise do jogo e ela aparece no cartão.</p>` : ""}`, back);
+  let data = null;
+  try { data = what.kind === "goal" ? await drawGoalCard(what.year, shareFormat) : await drawGameCard(g, shareFormat); }
+  catch (_) { data = null; }
+  const prev = body.querySelector("#sh-prev");
+  if (!prev) return;
+  if (!data) { prev.innerHTML = `<p class="hero-sub" style="padding:20px">Não consegui montar a imagem. Tente de novo.</p>`; return; }
+  prev.innerHTML = `<img src="${data}" alt="Prévia do cartão">`;
+  const go = body.querySelector("#sh-go"), save = body.querySelector("#sh-save");
+  go.disabled = save.disabled = false;
+  const text = g ? `${g.title}${g.rating ? ` ${"★".repeat(g.rating)}` : ""} no meu Backlog` : `Minha meta de ${what.year} no Backlog`;
+  go.onclick = async () => {
+    if (Native && Native.shareImage) { try { await callNative("shareImage", data, text); } catch (_) { toast("Não deu para compartilhar agora"); } }
+    else toast("Toque e segure na imagem para salvar ou compartilhar");
+  };
+  save.onclick = async () => {
+    if (!(Native && Native.saveImage)) { toast("Toque e segure na imagem para salvar"); return; }
+    try { await callNative("saveImage", data, "backlog-" + Date.now()); toast("Imagem salva em Imagens > Backlog"); }
+    catch (e) { toast(String(e.message).includes("antigo") ? "Neste Android, use Compartilhar e escolha salvar" : "Não deu para salvar agora"); }
+  };
+  body.querySelector("#sh-fmt").onclick = e => { const b = e.target.closest("[data-v]"); if (b && b.dataset.v !== shareFormat) { shareFormat = b.dataset.v; openShareCard(what, back); } };
+}
+
+/* =========================================================
+   Rede: perfis públicos, avaliações, seguir, curtir, denunciar
+   (Firebase Realtime Database pela API REST)
+   ========================================================= */
+let socialMe = store.load("backlog.social.v1", null);          // { uid, handle }
+let blocked = store.load("backlog.blocked.v1", []);             // uids escondidos
+const socialReady = () => cloudReady && auth && socialMe && socialMe.uid === auth.uid && socialMe.handle;
+const keyOf = title => norm(title).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80) || "jogo";
+const safeImg = u => typeof u === "string" && (/^data:image\/(png|jpe?g|webp);base64,/.test(u) || /^https:\/\//.test(u)) ? u : "";
+const HEART = '<svg viewBox="0 0 24 24"><path d="M12 20s-7.5-4.4-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.6-7.5 10-7.5 10z"/></svg>';
+const DOTS = '<svg viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="18.5" cy="12" r="1.4" fill="currentColor"/></svg>';
+
+async function dbURL(path, params) {
+  const q = new URLSearchParams({ auth: await idToken(), ...(params || {}) });
+  return `${FB.databaseURL.replace(/\/+$/, "")}/${path}.json?${q}`;
+}
+const dbGet = async (path, params) => request("GET", await dbURL(path, params));
+// Sempre em JSON: um texto solto ("u123") precisa ir com aspas para o Firebase aceitar
+const dbPut = async (path, val) => request("PUT", await dbURL(path), JSON.stringify(val));
+const dbPost = async (path, val) => request("POST", await dbURL(path), JSON.stringify(val));
+const dbDel = async path => request("DELETE", await dbURL(path));
+const q = v => JSON.stringify(v);
+
+function publicStats() {
+  const done = games.filter(g => g.status === "done").length;
+  const rated = games.filter(g => g.rating);
+  return {
+    games: games.length, done,
+    hours: Math.round(games.reduce((a, g) => a + (Number(g.hours) || 0), 0)),
+    avg: rated.length ? Math.round(rated.reduce((a, g) => a + g.rating, 0) / rated.length * 10) / 10 : 0
+  };
+}
+function myPublicPhoto() {
+  const mode = avatarMode();
+  return safeImg(mode === "photo" ? profile.photoData : mode === "google" && auth ? auth.photo : "");
+}
+async function publishProfile() {
+  if (!socialReady()) return;
+  const fav = games.find(g => g.id === profile.favGame);
+  const y = new Date().getFullYear(), goal = (profile.goals || {})[y];
+  await dbPut(`profiles/${auth.uid}`, {
+    handle: socialMe.handle, name: profile.name || socialMe.handle, bio: profile.bio || "",
+    color: profile.color || "#FFD21F", photo: myPublicPhoto(), favPlatform: profile.favPlatform || "",
+    favGame: fav ? { title: fav.title, cover: safeImg(fav.coverRemote) } : null,
+    goal: goal ? { year: y, games: goal.games, done: doneIn(y).length } : null,
+    stats: publicStats(), updatedAt: Date.now()
+  });
+}
+let socialTimer;
+function scheduleSocial() {
+  if (!socialReady()) return;
+  clearTimeout(socialTimer);
+  socialTimer = setTimeout(() => publishProfile().catch(() => {}), 4000);
+}
+function reviewPayload(g) {
+  return {
+    uid: auth.uid, handle: socialMe.handle, gameKey: keyOf(g.title), game: g.title,
+    cover: safeImg(g.coverRemote) || safeImg((g.coverAlts || [])[0]) || "",
+    rating: g.rating || 0, text: (g.review || "").slice(0, 2000), spoiler: !!g.spoiler,
+    hours: Number(g.hours) || 0, platform: g.platform || "", status: g.status, at: Date.now()
+  };
+}
+async function syncReview(g) {
+  if (!socialReady()) return;
+  const rid = `${auth.uid}_${keyOf(g.title)}`;
+  if (g.shared && (g.rating || (g.review || "").trim())) await dbPut(`reviews/${rid}`, reviewPayload(g));
+  else await dbDel(`reviews/${rid}`).catch(() => {});
+  scheduleSocial();
+}
+async function unpublishReview(g) {
+  if (!socialReady()) return;
+  await dbDel(`reviews/${auth.uid}_${keyOf(g.title)}`).catch(() => {});
+}
+
+/* --- Cache de perfis públicos --- */
+const profCache = new Map();
+async function getProfile(uid) {
+  if (profCache.has(uid)) return profCache.get(uid);
+  const p = dbGet(`profiles/${uid}`).then(v => v || null).catch(() => null);
+  profCache.set(uid, p);
+  return p;
+}
+function avatarFor(p, size) {
+  const src = p && safeImg(p.photo);
+  if (src) return `<span class="avatar" style="width:${size}px;height:${size}px"><img src="${esc(src)}" alt=""></span>`;
+  const name = (p && (p.name || p.handle)) || "?";
+  const ini = name.trim().split(/\s+/).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+  const c = /^#[0-9a-f]{6}$/i.test(p && p.color) ? p.color : "#FFD21F";
+  const rgb = parseInt(c.slice(1), 16);
+  const lum = (0.299 * (rgb >> 16) + 0.587 * ((rgb >> 8) & 255) + 0.114 * (rgb & 255)) / 255;
+  return `<span class="avatar" style="width:${size}px;height:${size}px;background:${c};color:${lum > .6 ? "#111" : "#fff"};font-size:${Math.round(size * .4)}px">${esc(ini)}</span>`;
+}
+const ago = t => {
+  const m = Math.round((Date.now() - t) / 60000);
+  if (m < 1) return "agora";
+  if (m < 60) return `${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} h`;
+  const d = Math.round(h / 24);
+  if (d < 7) return `${d} d`;
+  return fmtDay(t);
+};
+const listOf = obj => Object.entries(obj || {}).map(([id, v]) => ({ id, ...v })).filter(r => r && r.uid && !blocked.includes(r.uid));
+
+/* --- Cartão de avaliação --- */
+function postHTML(r, prof, likes, opts = {}) {
+  const lk = likes[r.id] || {};
+  const n = Object.keys(lk).length, mine = !!lk[auth.uid];
+  const st = statusOf(r.status);
+  return `<article class="post" data-rid="${esc(r.id)}" data-uid="${esc(r.uid)}">
+    ${opts.hideUser ? "" : `<header class="post-head">
+      <button class="post-user" data-user="${esc(r.uid)}">${avatarFor(prof, 38)}<span><b>${esc((prof && prof.name) || r.handle)}</b><small>@${esc(r.handle)}</small></span></button>
+      <span class="post-time">${ago(r.at)}</span>
+      <button class="icon-btn post-more" data-more="${esc(r.id)}" aria-label="Mais opções">${DOTS}</button>
+    </header>`}
+    ${opts.hideGame ? "" : `<button class="post-game" data-game="${esc(r.gameKey)}" data-title="${esc(r.game)}" data-cover="${esc(safeImg(r.cover))}">
+      ${coverHTML([safeImg(r.cover)].filter(Boolean), r.game)}
+      <span><b>${esc(r.game)}</b>
+        ${r.rating ? `<span class="post-stars" aria-label="${r.rating} de 5">${"★".repeat(r.rating)}<i>${"★".repeat(5 - r.rating)}</i></span>` : ""}
+        <small>${[st.label, r.hours ? `${fmtH(r.hours)} h` : "", platLabel(r.platform)].filter(Boolean).map(esc).join(", ")}</small></span>
+    </button>`}
+    ${r.text ? `<div class="post-text ${r.spoiler ? "is-spoiler" : ""}" ${r.spoiler ? `data-spoiler` : ""}>
+      ${r.spoiler ? `<span class="spoiler-tag">Contém spoiler. Toque para ler</span>` : ""}<p>${esc(r.text)}</p></div>` : ""}
+    <footer class="post-foot">
+      <button class="like ${mine ? "is-on" : ""}" data-like="${esc(r.id)}" aria-pressed="${mine}">${HEART}<span>${n || ""}</span></button>
+      ${opts.hideUser ? `<span class="post-time">${ago(r.at)}</span>` : ""}
+    </footer>
+  </article>`;
+}
+function wirePosts(root, refresh) {
+  root.querySelectorAll("[data-user]").forEach(b => b.onclick = () => openNetProfile(b.dataset.user, refresh));
+  root.querySelectorAll("[data-game]").forEach(b => b.onclick = () => openNetGame(b.dataset.game, b.dataset.title, b.dataset.cover, refresh));
+  root.querySelectorAll("[data-spoiler]").forEach(b => b.onclick = () => { b.classList.remove("is-spoiler"); b.removeAttribute("data-spoiler"); });
+  root.querySelectorAll("[data-like]").forEach(b => b.onclick = async () => {
+    const on = !b.classList.contains("is-on");
+    const span = b.querySelector("span");
+    const n = (parseInt(span.textContent, 10) || 0) + (on ? 1 : -1);
+    b.classList.toggle("is-on", on); span.textContent = n > 0 ? n : "";
+    try { on ? await dbPut(`likes/${b.dataset.like}/${auth.uid}`, true) : await dbDel(`likes/${b.dataset.like}/${auth.uid}`); }
+    catch (_) { toast("Não deu para curtir agora"); }
+  });
+  root.querySelectorAll("[data-more]").forEach(b => b.onclick = () => {
+    const card = b.closest(".post");
+    openPostMenu(card.dataset.rid, card.dataset.uid, refresh);
+  });
+}
+function openPostMenu(rid, uid, back) {
+  const mineP = uid === auth.uid;
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${ICON.back}</button></div>
+    <div class="actions" style="margin-top:22px">
+      <button class="btn btn-ghost" id="pm-profile">Ver perfil</button>
+      ${mineP ? "" : `
+      <span class="field-label" style="margin:14px 0 0">Denunciar esta avaliação</span>
+      <div class="seg" id="pm-reasons">${["Spam", "Ofensiva ou com ódio", "Spoiler sem aviso", "Outro motivo"].map(r => `<button class="chip" data-v="${r}">${r}</button>`).join("")}</div>
+      <button class="btn btn-danger" id="pm-block">Bloquear esta pessoa</button>`}
+    </div>`, back);
+  body.querySelector("#pm-profile").onclick = () => openNetProfile(uid, back);
+  const rs = body.querySelector("#pm-reasons");
+  if (rs) rs.onclick = async e => {
+    const b = e.target.closest("[data-v]"); if (!b) return;
+    try { await dbPost("reports", { by: auth.uid, uid, rid, reason: b.dataset.v, at: Date.now() }); toast("Denúncia enviada. Obrigado por avisar."); }
+    catch (_) { toast("Não deu para enviar a denúncia agora"); }
+    back ? back() : closeSheet();
+  };
+  const bl = body.querySelector("#pm-block");
+  if (bl) bl.onclick = () => {
+    if (!blocked.includes(uid)) blocked.push(uid);
+    store.save("backlog.blocked.v1", blocked);
+    toast("Pessoa bloqueada. As avaliações dela não aparecem mais para você.");
+    renderNet(); closeSheet();
+  };
+}
+
+/* --- Aba Rede --- */
+let netSeg = "recent", netSearch = "";
+async function loadLikes() { try { return (await dbGet("likes")) || {}; } catch (_) { return {}; } }
+async function renderNet() {
+  const box = $("#net");
+  if (!box) return;
+  $("#net-me").innerHTML = socialReady() ? `<button class="avatar-btn" id="net-me-btn" aria-label="Meu perfil público">${avatarHTML(40)}</button>` : "";
+  const meBtn = $("#net-me-btn");
+  if (meBtn) meBtn.onclick = () => openNetProfile(auth.uid);
+  if (!cloudReady) {
+    box.innerHTML = `<div class="empty"><div class="empty-art" aria-hidden="true"><span></span><span></span><span></span></div>
+      <p class="empty-title">A rede está chegando</p>
+      <p class="empty-text">Aqui você vai ver as avaliações e os perfis de outras pessoas, seguir quem joga o mesmo que você e publicar suas análises. Ela liga numa próxima atualização do app.</p></div>`;
+    return;
+  }
+  if (!auth) {
+    box.innerHTML = `<div class="net-intro">
+      <p class="empty-title">Entre para ver a rede</p>
+      <p class="empty-text">Veja o que a galera está jogando, leia avaliações e publique as suas. Sua estante continua salva no celular, e ganha uma cópia na nuvem.</p>
+      <form class="email-form" id="net-login">
+        <input class="text-input" id="nl-mail" type="email" autocomplete="email" placeholder="E-mail">
+        <input class="text-input" id="nl-pass" type="password" autocomplete="current-password" placeholder="Senha (mínimo 6 caracteres)">
+        <p class="form-error" id="nl-err" hidden></p>
+        <div class="two-btns"><button class="btn btn-primary" type="submit" data-mode="up">Criar conta</button><button class="btn btn-ghost" type="submit" data-mode="in">Já tenho conta</button></div>
+      </form></div>`;
+    const f = box.querySelector("#net-login");
+    f.onsubmit = async e => {
+      e.preventDefault();
+      const mode = (e.submitter && e.submitter.dataset.mode) || "in", err = f.querySelector("#nl-err");
+      const mail = f.querySelector("#nl-mail").value.trim(), pass = f.querySelector("#nl-pass").value;
+      err.hidden = true;
+      if (!mail || !pass) { err.textContent = "Preencha e-mail e senha."; err.hidden = false; return; }
+      f.querySelectorAll("button").forEach(b => b.disabled = true);
+      try { await signInEmail(mode, mail, pass); toast("Conta conectada"); fullSync(); await checkSocialMe(); renderNet(); }
+      catch (ex) { err.textContent = authError(ex) || "Não foi possível entrar."; err.hidden = false; f.querySelectorAll("button").forEach(b => b.disabled = false); }
+    };
+    return;
+  }
+  if (!socialReady()) {
+    await checkSocialMe();
+    if (!socialReady()) return renderJoin(box);
+  }
+  box.innerHTML = `
+    <div class="segmented" id="net-seg">${[["recent", "Recentes"], ["following", "Seguindo"], ["people", "Pessoas"]].map(([id, l]) =>
+      `<button class="${netSeg === id ? "is-on" : ""}" data-s="${id}">${l}</button>`).join("")}</div>
+    ${netSeg === "people" ? `<form class="searchbar" id="net-sf" autocomplete="off">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="net-q" type="search" placeholder="Buscar @usuário" value="${esc(netSearch)}" enterkeyhint="search"></form>` : ""}
+    <div id="net-list" class="net-list">${skeletonRows(4)}</div>`;
+  box.querySelector("#net-seg").onclick = e => { const b = e.target.closest("[data-s]"); if (b) { netSeg = b.dataset.s; renderNet(); } };
+  const list = box.querySelector("#net-list");
+  try {
+    if (netSeg === "people") {
+      const sf = box.querySelector("#net-sf"), qi = box.querySelector("#net-q");
+      let t; qi.oninput = () => { clearTimeout(t); t = setTimeout(() => { netSearch = qi.value.trim(); drawPeople(list); }, 350); };
+      sf.onsubmit = e => { e.preventDefault(); netSearch = qi.value.trim(); drawPeople(list); };
+      return drawPeople(list);
+    }
+    const [revs, likes, fol] = await Promise.all([
+      dbGet("reviews", { orderBy: q("at"), limitToLast: netSeg === "following" ? "300" : "60" }),
+      loadLikes(),
+      netSeg === "following" ? dbGet(`following/${auth.uid}`) : Promise.resolve(null)
+    ]);
+    let items = listOf(revs).sort((a, b) => b.at - a.at);
+    if (netSeg === "following") { const set = new Set(Object.keys(fol || {})); items = items.filter(r => set.has(r.uid)).slice(0, 60); }
+    if (!items.length) {
+      list.innerHTML = netSeg === "following"
+        ? `<p class="hero-sub net-empty">Você ainda não segue ninguém. Abra a aba Pessoas ou toque no nome de alguém para seguir.</p>`
+        : `<p class="hero-sub net-empty">Ninguém publicou ainda. Seja a primeira pessoa: abra um jogo da sua estante, dê uma nota e deixe "Publicar na rede" ligado.</p>`;
+      return;
+    }
+    const profs = new Map(await Promise.all([...new Set(items.map(r => r.uid))].map(async u => [u, await getProfile(u)])));
+    list.innerHTML = items.map(r => postHTML(r, profs.get(r.uid), likes)).join("");
+    wirePosts(list);
+  } catch (e) {
+    list.innerHTML = `<p class="hero-sub net-empty">${/40[13]/.test(String(e.message)) ? "A rede recusou o acesso. Saia e entre de novo na conta em Ajustes > Perfil." : "Não deu para carregar a rede. Confira a internet e puxe de novo tocando na aba."}</p>`;
+  }
+}
+async function drawPeople(list) {
+  list.innerHTML = skeletonRows(4);
+  const h = netSearch.replace(/^@/, "").toLowerCase();
+  let res;
+  try {
+    res = h ? await dbGet("profiles", { orderBy: q("handle"), startAt: q(h), endAt: q(h + ""), limitToFirst: "30" })
+            : await dbGet("profiles", { orderBy: q("handle"), limitToFirst: "40" });
+  } catch (_) { list.innerHTML = `<p class="hero-sub net-empty">Não deu para buscar agora.</p>`; return; }
+  const people = Object.entries(res || {}).filter(([u]) => !blocked.includes(u)).map(([u, p]) => ({ uid: u, ...p }));
+  list.innerHTML = people.length ? `<ul class="rows" style="padding:0">${people.map(p => `<li><button class="row person" data-user="${esc(p.uid)}">
+      ${avatarFor(p, 52)}
+      <div><div class="row-title">${esc(p.name || p.handle)}${p.uid === auth.uid ? ` <span class="tag">Você</span>` : ""}</div>
+      <div class="row-sub">@${esc(p.handle)}${p.stats ? `, ${p.stats.done || 0} zerados` : ""}</div></div>
+      <span class="row-chev">${ICON.chev}</span></button></li>`).join("")}</ul>`
+    : `<p class="hero-sub net-empty">${h ? `Ninguém com @${esc(h)}.` : "Ninguém por aqui ainda."}</p>`;
+  list.querySelectorAll("[data-user]").forEach(b => b.onclick = () => openNetProfile(b.dataset.user));
+}
+async function checkSocialMe() {
+  if (!cloudReady || !auth) return;
+  if (socialMe && socialMe.uid === auth.uid && socialMe.handle) return;
+  try {
+    const p = await dbGet(`profiles/${auth.uid}`);
+    socialMe = p && p.handle ? { uid: auth.uid, handle: p.handle } : null;
+    store.save("backlog.social.v1", socialMe);
+  } catch (_) {}
+}
+function renderJoin(box) {
+  const suggestion = (profile.name || (auth.email || "").split("@")[0] || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9_.]/g, "").slice(0, 20);
+  box.innerHTML = `<div class="net-intro">
+    <p class="empty-title">Crie seu perfil público</p>
+    <p class="empty-text">Escolha um @ para as pessoas te acharem. Aparecem para os outros: seu nome, foto, frase, jogo favorito, números da estante e só as avaliações que você publicar.</p>
+    <form class="email-form" id="join">
+      <div class="handle-input"><span>@</span><input class="text-input" id="j-handle" maxlength="20" autocomplete="off" autocapitalize="none" placeholder="seu_usuario" value="${esc(suggestion)}"></div>
+      <input class="text-input" id="j-name" maxlength="40" placeholder="Seu nome" value="${esc(profile.name)}">
+      ${games.some(g => g.rating || (g.review || "").trim()) ? `<div class="switch-row panel" style="margin:0">
+        <div><b>Publicar minhas notas atuais</b><span>${games.filter(g => g.rating || (g.review || "").trim()).length} jogos com nota ou análise. Dá para esconder qualquer um depois.</span></div>
+        <button type="button" class="switch" id="j-pub" role="switch" aria-checked="false" aria-label="Publicar minhas notas atuais"></button>
+      </div>` : ""}
+      <p class="form-error" id="j-err" hidden></p>
+      <button class="btn btn-primary" type="submit">Entrar na rede</button>
+      <p class="panel-note" style="margin:0">Ao entrar, você concorda em respeitar as outras pessoas. Avaliações ofensivas podem ser denunciadas.</p>
+    </form></div>`;
+  const f = box.querySelector("#join");
+  const pub = f.querySelector("#j-pub");
+  if (pub) pub.onclick = () => { const on = !pub.classList.contains("is-on"); pub.classList.toggle("is-on", on); pub.setAttribute("aria-checked", on); };
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const err = f.querySelector("#j-err"), btn = f.querySelector("button");
+    const h = f.querySelector("#j-handle").value.trim().replace(/^@/, "").toLowerCase();
+    const name = f.querySelector("#j-name").value.trim();
+    err.hidden = true;
+    if (!/^[a-z0-9_.]{3,20}$/.test(h)) { err.textContent = "Use de 3 a 20 letras, números, ponto ou _ (sem espaço nem acento)."; err.hidden = false; return; }
+    btn.disabled = true;
+    try {
+      const owner = await dbGet(`handles/${h}`);
+      if (owner && owner !== auth.uid) throw userErr("Esse @ já está em uso. Tente outro.");
+      if (!owner) await dbPut(`handles/${h}`, auth.uid).catch(() => { throw userErr("Esse @ já está em uso. Tente outro."); });
+      if (name) { profile.name = name; store.save("backlog.profile.v1", profile); }
+      socialMe = { uid: auth.uid, handle: h };
+      store.save("backlog.social.v1", socialMe);
+      await publishProfile();
+      // As notas antigas só vão para a rede se a pessoa ligou a opção
+      const publishOld = !!(pub && pub.classList.contains("is-on"));
+      games.forEach(g => { if (g.shared === undefined) g.shared = publishOld; });
+      if (publishOld) await Promise.allSettled(games.filter(g => g.shared && (g.rating || (g.review || "").trim())).map(syncReview));
+      saveGames();
+      toast(`Bem-vindo à rede, @${h}!`);
+      renderNet();
+    } catch (ex) {
+      err.textContent = ex.userMessage || "Não deu para criar o perfil agora. Tente de novo."; err.hidden = false; btn.disabled = false;
+    }
+  };
+}
+
+/* --- Perfil de outra pessoa --- */
+async function openNetProfile(uid, back) {
+  showSheet(`<div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button></div>
+    <div id="np">${skeletonRows(4)}</div>`, back);
+  const box = body.querySelector("#np");
+  let p, revs, likes, fol;
+  try {
+    profCache.delete(uid);
+    [p, revs, likes, fol] = await Promise.all([getProfile(uid), dbGet("reviews", { orderBy: q("uid"), equalTo: q(uid) }), loadLikes(),
+      uid === auth.uid ? null : dbGet(`following/${auth.uid}/${uid}`)]);
+  } catch (_) { if (box) box.innerHTML = `<p class="hero-sub">Não deu para abrir esse perfil agora.</p>`; return; }
+  if (!box) return;
+  if (!p) { box.innerHTML = `<p class="hero-sub">Esse perfil não existe mais.</p>`; return; }
+  const me = uid === auth.uid;
+  const items = listOf(revs).sort((a, b) => b.at - a.at);
+  const s = p.stats || {};
+  box.innerHTML = `
+    <div class="profile-hero">
+      ${avatarFor(p, 96)}
+      <h2 class="hero-title" style="margin-top:8px">${esc(p.name || p.handle)}</h2>
+      <div class="hero-sub" style="margin:0">@${esc(p.handle)}${p.favPlatform ? `, joga mais no ${esc(platLabel(p.favPlatform))}` : ""}</div>
+      ${p.bio ? `<p class="np-bio">${esc(p.bio)}</p>` : ""}
+      <div class="actions" style="width:100%;margin-top:14px">
+        ${me ? `<button class="btn btn-ghost" id="np-edit">Editar perfil</button>`
+          : `<button class="btn ${fol ? "btn-ghost" : "btn-primary"}" id="np-follow">${fol ? "Seguindo" : "Seguir"}</button>`}
+      </div>
+    </div>
+    <div class="stats-grid">
+      <div class="stat"><b>${s.games || 0}</b><span>jogos</span></div>
+      <div class="stat"><b>${s.done || 0}</b><span>zerados</span></div>
+      <div class="stat"><b>${fmtH(s.hours || 0)} h</b><span>jogadas</span></div>
+      <div class="stat"><b>${items.length}</b><span>${items.length === 1 ? "avaliação" : "avaliações"}</span></div>
+      <div class="stat"><b>${s.avg ? fmtH(s.avg) : "–"}</b><span>nota média</span></div>
+      <div class="stat"><b>${p.goal ? `${p.goal.done}/${p.goal.games}` : "–"}</b><span>${p.goal ? `meta ${p.goal.year}` : "sem meta"}</span></div>
+    </div>
+    ${p.favGame ? `<div class="field"><span class="field-label">Jogo favorito</span>
+      <div class="np-fav">${coverHTML([safeImg(p.favGame.cover)].filter(Boolean), p.favGame.title)}<b>${esc(p.favGame.title)}</b></div></div>` : ""}
+    <div class="field"><span class="field-label">Avaliações</span>
+      <div class="net-list" id="np-list">${items.length ? items.map(r => postHTML(r, p, likes, { hideUser: true })).join("") : `<p class="hero-sub" style="margin:0">${me ? "Você ainda não publicou nenhuma avaliação." : "Nenhuma avaliação publicada ainda."}</p>`}</div>
+    </div>`;
+  const reopen = () => openNetProfile(uid, back);
+  wirePosts(box.querySelector("#np-list"), reopen);
+  const ed = box.querySelector("#np-edit");
+  if (ed) ed.onclick = () => openProfile();
+  const fb = box.querySelector("#np-follow");
+  if (fb) fb.onclick = async () => {
+    fb.disabled = true;
+    try {
+      if (fol) await dbDel(`following/${auth.uid}/${uid}`); else await dbPut(`following/${auth.uid}/${uid}`, Date.now());
+      fol = !fol; fb.textContent = fol ? "Seguindo" : "Seguir"; fb.className = `btn ${fol ? "btn-ghost" : "btn-primary"}`;
+      toast(fol ? `Agora você segue @${p.handle}` : `Você deixou de seguir @${p.handle}`);
+    } catch (_) { toast("Não deu agora. Tente de novo."); }
+    fb.disabled = false;
+  };
+}
+
+/* --- Avaliações de um jogo na rede --- */
+async function netGameSummary(title) {
+  const r = await dbGet("reviews", { orderBy: q("gameKey"), equalTo: q(keyOf(title)) });
+  const items = listOf(r);
+  const rated = items.filter(x => x.rating);
+  return { items, count: items.length, avg: rated.length ? rated.reduce((a, x) => a + x.rating, 0) / rated.length : 0 };
+}
+async function openNetGame(gameKey, title, cover, back) {
+  showSheet(`<div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button></div>
+    <div class="hero">${coverHTML([cover].filter(Boolean), title)}<div><h2 class="hero-title">${esc(title)}</h2><div class="hero-sub" id="ng-sum">Carregando avaliações…</div></div></div>
+    <div class="actions" id="ng-act"></div>
+    <div class="net-list" id="ng-list">${skeletonRows(3)}</div>`, back);
+  let sum, likes;
+  try { [sum, likes] = await Promise.all([netGameSummary(title), loadLikes()]); }
+  catch (_) { const el = body.querySelector("#ng-list"); if (el) el.innerHTML = `<p class="hero-sub">Não deu para carregar agora.</p>`; return; }
+  const list = body.querySelector("#ng-list");
+  if (!list) return;
+  body.querySelector("#ng-sum").innerHTML = sum.count
+    ? `${sum.avg ? `<span class="minstars" style="font-size:15px">${"★".repeat(Math.round(sum.avg))}</span> <b>${fmtH(Math.round(sum.avg * 10) / 10)}</b> de média, ` : ""}${sum.count} ${sum.count === 1 ? "avaliação" : "avaliações"} na rede`
+    : "Ninguém avaliou esse jogo na rede ainda.";
+  const owned = games.find(g => norm(g.title) === norm(title));
+  const act = body.querySelector("#ng-act");
+  act.innerHTML = owned ? `<button class="btn btn-ghost" id="ng-open">Abrir na minha estante</button>` : `<button class="btn btn-primary" id="ng-add">Adicionar à minha estante</button>`;
+  const reopen = () => openNetGame(gameKey, title, cover, back);
+  if (owned) act.querySelector("#ng-open").onclick = () => openGame(owned, null, reopen);
+  else act.querySelector("#ng-add").onclick = () => openGame(null, { title, year: "", covers: [cover].filter(Boolean) }, reopen);
+  const profs = new Map(await Promise.all([...new Set(sum.items.map(r => r.uid))].map(async u => [u, await getProfile(u)])));
+  list.innerHTML = sum.items.sort((a, b) => b.at - a.at).map(r => postHTML(r, profs.get(r.uid), likes, { hideGame: true })).join("");
+  wirePosts(list, reopen);
+}
+
+/* --- Sair da rede --- */
+async function leaveNetwork() {
+  const revs = await dbGet("reviews", { orderBy: q("uid"), equalTo: q(auth.uid) }).catch(() => ({}));
+  await Promise.allSettled(Object.keys(revs || {}).map(id => dbDel(`reviews/${id}`)));
+  await dbDel(`following/${auth.uid}`).catch(() => {});
+  await dbDel(`profiles/${auth.uid}`).catch(() => {});
+  if (socialMe && socialMe.handle) await dbDel(`handles/${socialMe.handle}`).catch(() => {});
+  games.forEach(g => { delete g.shared; });
+  saveGames();
+  socialMe = null; store.save("backlog.social.v1", null);
+}
+function socialSettingsHTML() {
+  if (!cloudReady || !auth || !socialReady()) return "";
+  return `<div class="group">
+    <h2 class="group-title">Rede</h2>
+    <div class="card-list">
+      <div class="setting"><button class="setting-btn" id="s-net-me">
+        <div><div class="setting-name">Meu perfil público</div><div class="setting-desc">@${esc(socialMe.handle)}</div></div>
+        <span class="row-chev">${ICON.chev}</span></button></div>
+      <div class="setting"><button class="setting-btn" id="s-net-blocked">
+        <div><div class="setting-name">Pessoas bloqueadas</div><div class="setting-desc">${blocked.length ? `${blocked.length} ${blocked.length === 1 ? "pessoa" : "pessoas"}. Toque para desbloquear todas.` : "Ninguém bloqueado"}</div></div>
+        </button></div>
+      <div class="setting"><button class="setting-btn danger" id="s-net-leave">
+        <div><div class="setting-name">Sair da rede</div><div class="setting-desc">Apaga seu perfil público, seu @ e todas as avaliações publicadas. Sua estante não muda.</div></div>
+        </button></div>
+    </div>
+  </div>`;
+}
+function wireSocialSettings() {
+  const me = $("#s-net-me"); if (me) me.onclick = () => openNetProfile(auth.uid);
+  const bl = $("#s-net-blocked");
+  if (bl) bl.onclick = () => { if (!blocked.length) return; blocked = []; store.save("backlog.blocked.v1", blocked); toast("Todas as pessoas foram desbloqueadas"); renderSettings(); };
+  const lv = $("#s-net-leave");
+  if (lv) lv.onclick = async () => {
+    if (!lv.dataset.armed) { lv.dataset.armed = "1"; lv.querySelector(".setting-name").textContent = "Toque de novo para sair da rede"; setTimeout(() => { if (lv.isConnected) renderSettings(); }, 3500); return; }
+    lv.disabled = true;
+    try { await leaveNetwork(); toast("Você saiu da rede. Seu perfil público foi apagado."); }
+    catch (_) { toast("Não deu para sair agora. Tente de novo."); }
+    renderSettings();
+  };
 }
 
 /* Botão voltar do Android */

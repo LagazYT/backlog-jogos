@@ -38,8 +38,8 @@ jobs:
         run: |
           chmod +x gradlew
           N=${{ github.run_number }}
-          echo "window.APP_VERSION = { tag: \"v1.5.$N\", build: $N };" > app/src/main/assets/www/version.js
-          ./gradlew --no-daemon assembleRelease -Pvc=$N -Pvn=1.5.$N 2>&1 | tee build.log | tail -40; test ${PIPESTATUS[0]} -eq 0 || { grep -E -A8 "What went wrong|error:" build.log | sed 's/^/::error::/' | head -20; exit 1; }
+          echo "window.APP_VERSION = { tag: \"v1.6.$N\", build: $N };" > app/src/main/assets/www/version.js
+          ./gradlew --no-daemon assembleRelease -Pvc=$N -Pvn=1.6.$N 2>&1 | tee build.log | tail -40; test ${PIPESTATUS[0]} -eq 0 || { grep -E -A8 "What went wrong|error:" build.log | sed 's/^/::error::/' | head -20; exit 1; }
           cp app/build/outputs/apk/release/app-release.apk Backlog.apk
           rm -f app/release.jks
 
@@ -53,7 +53,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.5.${{ github.run_number }}
-          name: Backlog 1.5.${{ github.run_number }}
+          tag_name: v1.6.${{ github.run_number }}
+          name: Backlog 1.6.${{ github.run_number }}
           files: Backlog.apk
           body: ${{ github.event.head_commit.message }}
