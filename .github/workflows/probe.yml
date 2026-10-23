@@ -22,14 +22,10 @@ jobs:
                   with urllib.request.urlopen(req, timeout=20) as r: return r.status, r.read().decode()[:300]
               except urllib.error.HTTPError as e: return e.code, e.read().decode()[:300]
           mail = f"probe{int(time.time())}@backlog-teste.dev"
-          st, b = call("POST", f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={KEY}", {"email": mail, "password": "teste123456", "returnSecureToken": True})
-          print("signUp", st, b[:160])
-          if st != 200: raise SystemExit
-          tok = json.loads(b)["idToken"] if b.startswith("{") and "idToken" in b else None
-          if not tok:
-              st, b = call("POST", f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={KEY}", {"email": mail+"x", "password": "teste123456", "returnSecureToken": True})
-          full = json.loads(urllib.request.urlopen(urllib.request.Request(f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={KEY}", data=json.dumps({"email": mail, "password": "teste123456", "returnSecureToken": True}).encode(), headers={"Content-Type": "application/json"})).read())
+          req = urllib.request.Request(f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={KEY}", data=json.dumps({"email": mail, "password": "teste123456", "returnSecureToken": True}).encode(), headers={"Content-Type": "application/json"})
+          full = json.loads(urllib.request.urlopen(req, timeout=20).read())
           tok, uid = full["idToken"], full["localId"]
+          print("signUp ok", uid[:6])
           A = f"auth={tok}"
           print("noauth read", *call("GET", f"{DB}/reviews.json"))
           print("handle put", *call("PUT", f"{DB}/handles/zzprobe{uid[:6].lower()}.json?{A}", uid))
