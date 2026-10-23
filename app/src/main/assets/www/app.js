@@ -127,8 +127,8 @@ const findPopular = (title, wiki) => {
    cópia no celular em segundo plano.
    ========================================================= */
 const steamBase = id => `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${id}/`;
-const steamCovers = id => [steamBase(id) + "library_600x900.jpg", steamBase(id) + "library_600x900_2x.jpg"];
-const steamHeader = id => steamBase(id) + "header.jpg";
+const steamCovers = id => steamArtCovers(id) || [steamBase(id) + "library_600x900.jpg", steamBase(id) + "library_600x900_2x.jpg"];
+const steamHeader = id => { const a = steamArt[id]; return a && a.header ? a.header : steamBase(id) + "header.jpg"; };
 const popKey = p => "pop_" + norm(p.wiki).replace(/\s/g, "_");
 
 function popCovers(p) {
@@ -152,7 +152,7 @@ function platBadge(p) {
 function coverHTML(urls, title, opts = {}) {
   const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);
   const fb = `<div class="cover-fallback">${esc(title)}</div>${opts.plat ? platBadge(opts.plat) : ""}`;
-  const wikiAttr = opts.wiki ? ` data-wiki="${esc(opts.wiki)}"` : "";
+  const wikiAttr = (opts.wiki ? ` data-wiki="${esc(opts.wiki)}"` : "") + (opts.steam ? ` data-steam="${esc(opts.steam)}"` : "") + (title ? ` data-title="${esc(title)}"` : "");
   if (!list.length) return `<div class="cover"${wikiAttr}>${fb}</div>`;
   const co = /upload\.wikimedia\.org/.test(list[0]) ? ' crossorigin="anonymous"' : "";
   return `<div class="cover"${wikiAttr}>${fb}<img src="${esc(list[0])}" alt="" decoding="async" loading="${opts.eager ? "eager" : "lazy"}"${co}
@@ -187,6 +187,7 @@ window.__coverErr = img => {
     img.src = wikiThumbs[w];
     return;
   }
+  if (rescueCover(img)) return;
   img.remove();
 };
 
@@ -354,7 +355,7 @@ function renderLibrary() {
   $("#lib-playing").innerHTML = playing.length && libFilter === "all" ? `
     <div class="section-label">Jogando agora <small>${playing.length}</small></div>
     <div class="rail">${playing.map(g => `<button class="rail-card" data-id="${g.id}">
-        ${coverHTML(gameCovers(g), g.title, { plat: g.platform })}
+        ${coverHTML(gameCovers(g), g.title, { plat: g.platform, steam: g.steamId })}
         <div class="case-title">${esc(g.title)}</div>
         <div class="case-sub">${esc(platLabel(g.platform))}${g.hours ? `, ${fmtH(g.hours)} h` : ""}</div>
       </button>`).join("")}</div>` : "";
@@ -379,7 +380,7 @@ function renderLibrary() {
     const st = statusOf(g.status);
     const stars = g.rating ? `<span class="minstars">${"★".repeat(g.rating)}</span>` : "";
     return `<button class="case" data-id="${g.id}">
-      ${coverHTML(gameCovers(g), g.title, { plat: g.platform })}
+      ${coverHTML(gameCovers(g), g.title, { plat: g.platform, steam: g.steamId })}
       <div class="case-title">${esc(g.title)}</div>
       <div class="case-sub"><span class="pip" style="background:${st.color}"></span>${esc(st.label)} ${stars}</div>
     </button>`;
@@ -436,7 +437,7 @@ async function runSearch(q) {
     list.innerHTML = res.map((r, i) => {
       const added = games.some(g => norm(g.title) === norm(r.title));
       return `<li class="row" data-i="${i}">
-        ${coverHTML(r.covers, r.title)}
+        ${coverHTML(r.covers, r.title, { steam: r.steamId })}
         <div><div class="row-title">${esc(r.title)}</div><div class="row-sub">${esc([r.year, r.source].filter(Boolean).join(", "))}</div></div>
         <span class="row-add ${added ? "is-added" : ""}">${added ? ICON.check : ICON.plus}</span>
       </li>`;
@@ -613,6 +614,7 @@ async function trendingPage() {
   const start = trend.page * 25;
   const d = await getJSON(`https://store.steampowered.com/search/results/?query=&start=${start}&count=25&category1=998&category2=2&filter=mostplayed&infinite=1&cc=BR&l=portuguese`);
   const rows = steamRowsFrom(d.results_html || "").filter(r => !trend.items.some(x => x.steam === r.steam));
+  await steamAssets(rows.map(r => r.steam));
   rows.forEach(r => { r.covers = [...steamCovers(r.steam), steamHeader(r.steam)]; r.players = trend.players[r.steam] || 0; });
   // Números de jogadores chegam depois, sem segurar a lista
   Promise.allSettled(rows.map(r => getJSON(`https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=${r.steam}`)
@@ -629,7 +631,7 @@ function trendRowHTML(r, i) {
   const t = knownTimes(r.title);
   return `<li><button class="row rank-row" data-ti="${i}" data-steam="${r.steam}">
     <span class="rank">${i + 1}</span>
-    ${coverHTML(r.covers, r.title)}
+    ${coverHTML(r.covers, r.title, { steam: r.steam })}
     <div>
       <div class="row-title">${esc(r.title)}</div>
       <div class="row-sub">${r.players ? `<span class="live">${fmtN(r.players)} jogando agora</span>` : esc(r.year)}</div>
@@ -833,7 +835,7 @@ function openGame(game, result, back) {
       ${isNew ? "" : `<button class="btn btn-danger" id="del">Remover</button>`}
     </div>
     <div class="hero">
-      ${coverHTML(covers, draft.title, { eager: true })}
+      ${coverHTML(covers, draft.title, { eager: true, steam: draft.steamId || (pop && pop.steam) })}
       <div>
         <h2 class="hero-title">${esc(draft.title)}</h2>
         <div class="hero-sub">${esc(draft.year || "")}</div>
@@ -1687,8 +1689,9 @@ function startCloud() { if (cloudReady && auth) { fullSync(); checkSocialMe().th
 function renderAvatarButton() {
   const el = $("#lib-count");
   if (!el) return;
-  el.innerHTML = `<button class="avatar-btn" id="avatar-btn" aria-label="Seu perfil">${avatarHTML(40)}${auth ? `<i class="sync-dot ${sync.error ? "is-err" : ""}"></i>` : ""}</button>`;
-  el.querySelector("button").onclick = () => openProfile();
+  el.innerHTML = `<span class="top-actions">${bellHTML()}<button class="avatar-btn" id="avatar-btn" aria-label="Seu perfil">${avatarHTML(40)}${auth ? `<i class="sync-dot ${sync.error ? "is-err" : ""}"></i>` : ""}</button></span>`;
+  el.querySelector("#avatar-btn").onclick = () => openProfile();
+  renderBell();
 }
 function syncLine() {
   if (!cloudReady) return "Seu perfil fica salvo neste celular.";
@@ -2119,6 +2122,7 @@ async function steamLibrary() {
   const { steamid } = accounts.steam;
   const d = await getJSON(`https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?${await steamAuth()}&steamid=${steamid}&include_appinfo=1&include_played_free_games=1&format=json`);
   const list = d.response && d.response.games;
+  if (list) await steamAssets(list.map(g => g.appid));
   if (!list) throw userErr("A Steam não mostrou seus jogos. Abra a Steam > Perfil > Editar perfil > Privacidade e deixe \"Detalhes dos jogos\" como Público.");
   return list.map(g => ({
     id: String(g.appid), title: g.name, platform: "PC", steamId: g.appid,
@@ -3307,7 +3311,8 @@ async function loadLikes() { try { return (await dbGet("likes")) || {}; } catch 
 async function renderNet() {
   const box = $("#net");
   if (!box) return;
-  $("#net-me").innerHTML = socialReady() ? `<button class="avatar-btn" id="net-me-btn" aria-label="Meu perfil público">${avatarHTML(40)}</button>` : "";
+  $("#net-me").innerHTML = `<span class="top-actions">${bellHTML()}${socialReady() ? `<button class="avatar-btn" id="net-me-btn" aria-label="Meu perfil público">${avatarHTML(40)}</button>` : ""}</span>`;
+  renderBell();
   const meBtn = $("#net-me-btn");
   if (meBtn) meBtn.onclick = () => openNetProfile(auth.uid);
   if (!cloudReady) {
@@ -3587,6 +3592,7 @@ function wireSocialSettings() {
    ========================================================= */
 async function refreshCurrent() {
   if (!sheet.hidden) { if (sheetReload) await sheetReload(); return; }
+  checkNotifs();
   if (currentView === "library") {
     if (cloudReady && auth) await fullSync();
     ensureCovers();
@@ -3641,6 +3647,211 @@ async function refreshCurrent() {
   window.__refresh = refreshCurrent;
 })();
 
+/* =========================================================
+   Capas que faltam
+   1) Steam: jogos novos guardam a capa numa pasta com código;
+      o serviço público da loja diz o endereço certo (até 50 jogos por vez).
+   2) Qualquer outro jogo: capa do HowLongToBeat pelo nome.
+   ========================================================= */
+let steamArt = store.load("backlog.steamArt.v1", {});
+let titleArt = store.load("backlog.titleArt.v1", {});
+const steamArtCovers = id => { const a = steamArt[id]; return a && !a.none ? [a.cover, a.header || a.capsule].filter(Boolean) : null; };
+async function steamAssets(ids) {
+  const need = [...new Set(ids.map(Number).filter(id => id && !steamArt[id]))];
+  for (let i = 0; i < need.length; i += 50) {
+    const chunk = need.slice(i, i + 50);
+    const inp = { ids: chunk.map(appid => ({ appid })), context: { language: "brazilian", country_code: "BR" }, data_request: { include_assets: true } };
+    try {
+      const d = await getJSON("https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=" + encodeURIComponent(JSON.stringify(inp)));
+      const got = new Set();
+      (d.response?.store_items || []).forEach(it => {
+        const a = it.assets || {}, fmt = a.asset_url_format;
+        got.add(it.appid);
+        if (!fmt) { steamArt[it.appid] = { none: 1 }; return; }
+        const u = f => f ? "https://shared.akamai.steamstatic.com/store_item_assets/" + fmt.replace("${FILENAME}", f) : "";
+        steamArt[it.appid] = { cover: u(a.library_capsule), header: u(a.header), capsule: u(a.main_capsule) };
+      });
+      chunk.forEach(id => { if (!got.has(id)) steamArt[id] = { none: 1 }; });
+    } catch (_) { /* tenta de novo outra hora */ }
+  }
+  store.save("backlog.steamArt.v1", steamArt);
+  return steamArt;
+}
+async function titleCover(title) {
+  const k = norm(title);
+  if (k in titleArt) return titleArt[k];
+  let url = "";
+  try {
+    const r = await hltbSearch({ terms: cleanWikiTitle(title).replace(/[™®©]/g, "").split(/\s+/).filter(Boolean) });
+    const hit = r.items.find(x => norm(x.title) === k) || r.items.find(x => norm(x.title).startsWith(k)) || r.items[0];
+    url = hit && hit.covers[0] || "";
+  } catch (_) { return ""; }
+  titleArt[k] = url;
+  store.save("backlog.titleArt.v1", titleArt);
+  return url;
+}
+/* Corrige a capa guardada dos jogos da estante que estavam sem imagem */
+function fixGameCover(match, covers) {
+  let changed = false;
+  games.forEach(g => {
+    if (!match(g) || (g.cover && g.cover.startsWith("file:"))) return;
+    if (g.coverRemote === covers[0]) return;
+    g.coverRemote = covers[0]; g.coverAlts = covers.slice(1); g.cover = "";
+    changed = true;
+  });
+  if (changed) { clearTimeout(fixGameCover.t); fixGameCover.t = setTimeout(() => { store.save("backlog.games.v1", games); ensureCovers(); }, 600); }
+}
+function rescueCover(img) {
+  const holder = img.parentElement;
+  if (!holder) return false;
+  const sid = holder.dataset.steam, title = holder.dataset.title;
+  if (sid && !img.dataset.triedSteam && !(steamArt[sid] && steamArt[sid].tried)) {
+    img.dataset.triedSteam = "1";
+    steamAssets([sid]).then(() => {
+      const c = steamArtCovers(sid);
+      if (c && c[0] && img.isConnected && c[0] !== img.src) {
+        img.dataset.alts = c.slice(1).join("|"); img.src = c[0];
+        fixGameCover(g => String(g.steamId) === String(sid), c);
+      } else { if (steamArt[sid]) steamArt[sid].tried = 1; rescueCover(img) || img.remove(); }
+    });
+    return true;
+  }
+  if (title && !img.dataset.triedTitle) {
+    img.dataset.triedTitle = "1";
+    titleCover(title).then(u => {
+      if (u && img.isConnected && u !== img.src) {
+        img.dataset.alts = ""; img.src = u;
+        fixGameCover(g => norm(g.title) === norm(title), [u]);
+      } else if (img.isConnected) img.remove();
+    });
+    return true;
+  }
+  return false;
+}
+
+/* =========================================================
+   Notificações (sininho)
+   ========================================================= */
+let notifs = store.load("backlog.notifs.v1", []);
+let notifSeen = store.load("backlog.notifSeen.v1", {});
+const BELL = '<svg viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2H4.5z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>';
+const N_ICON = {
+  update: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19h14"/></svg>',
+  like: '<svg viewBox="0 0 24 24"><path d="M12 20s-7.5-4.4-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.6-7.5 10-7.5 10z" fill="currentColor"/></svg>',
+  goal: '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>'
+};
+const saveNotifs = () => { store.save("backlog.notifs.v1", notifs); renderBell(); };
+function addNotif(n) {
+  if (notifs.some(x => x.id === n.id)) return;
+  notifs.unshift({ read: false, t: Date.now(), ...n });
+  notifs = notifs.slice(0, 80);
+  saveNotifs();
+}
+const unreadCount = () => notifs.filter(n => !n.read).length;
+function bellHTML() {
+  const n = unreadCount();
+  return `<button class="bell" data-bell aria-label="Notificações${n ? `, ${n} novas` : ""}">${BELL}${n ? `<i class="bell-dot">${n > 9 ? "9+" : n}</i>` : ""}</button>`;
+}
+function renderBell() {
+  document.querySelectorAll("[data-bell]").forEach(b => { b.outerHTML = bellHTML(); });
+  document.querySelectorAll("[data-bell]").forEach(b => b.onclick = () => openNotifs());
+}
+
+let notifChecking = false;
+async function checkNotifs() {
+  if (notifChecking) return;
+  notifChecking = true;
+  try {
+    // Versão nova do app (no máximo a cada 30 min)
+    if (Native && APP.build && Date.now() - (notifSeen.updAt || 0) > 30 * 60 * 1000) {
+      notifSeen.updAt = Date.now();
+      try {
+        const u = await findUpdate();
+        if (u) { updateInfo = u; addNotif({ id: "upd_" + u.tag, type: "update", text: `Versão ${u.tag} disponível`, sub: (u.notes || "").split("\n")[0].slice(0, 120), act: { kind: "update" } }); }
+      } catch (_) {}
+    }
+    // Meta do ano batida
+    const y = new Date().getFullYear(), goal = profile.goals && profile.goals[y];
+    if (goal && doneIn(y).length >= goal.games) addNotif({ id: `goal_${y}_${goal.games}`, type: "goal", text: `Você bateu a meta de ${y}!`, sub: `${doneIn(y).length} jogos zerados de ${goal.games}`, act: { kind: "goal" } });
+
+    if (!socialReady()) return;
+    if (notifSeen.uid !== auth.uid) notifSeen = { uid: auth.uid, updAt: notifSeen.updAt };
+    const [fol, likes, revs] = await Promise.all([
+      dbGet("following").catch(() => null), loadLikes(),
+      dbGet("reviews", { orderBy: q("at"), limitToLast: "100" }).catch(() => null)
+    ]);
+    // Novos seguidores
+    const followers = Object.entries(fol || {}).filter(([u, m]) => u !== auth.uid && m && m[auth.uid] && !blocked.includes(u)).map(([u]) => u);
+    if (Array.isArray(notifSeen.followers)) {
+      for (const u of followers.filter(u => !notifSeen.followers.includes(u))) {
+        const p = await getProfile(u);
+        addNotif({ id: `fol_${u}_${Date.now()}`, type: "follow", text: `@${p ? p.handle : "alguém"} começou a seguir você`, sub: p && p.name ? p.name : "", act: { kind: "profile", uid: u }, who: p ? { name: p.name, handle: p.handle, color: p.color, photo: safeImg(p.photo) } : null });
+      }
+    }
+    notifSeen.followers = followers;
+    // Curtidas nas suas avaliações
+    const pairs = [];
+    Object.entries(likes || {}).forEach(([rid, users]) => { if (rid.startsWith(auth.uid + "_")) Object.keys(users || {}).forEach(u => { if (u !== auth.uid && !blocked.includes(u)) pairs.push(rid + "|" + u); }); });
+    if (Array.isArray(notifSeen.likes)) {
+      for (const pr of pairs.filter(x => !notifSeen.likes.includes(x))) {
+        const [rid, u] = pr.split("|");
+        const p = await getProfile(u);
+        const gk = rid.slice(auth.uid.length + 1);
+        const g = games.find(x => keyOf(x.title) === gk);
+        addNotif({ id: "like_" + pr, type: "like", text: `@${p ? p.handle : "alguém"} curtiu sua avaliação`, sub: g ? g.title : "", act: { kind: "profile", uid: auth.uid } });
+      }
+    }
+    notifSeen.likes = pairs;
+    // Avaliações de quem você segue
+    const following = new Set(Object.keys((fol || {})[auth.uid] || {}));
+    if (notifSeen.reviewsAt) {
+      Object.entries(revs || {}).filter(([, r]) => r && following.has(r.uid) && r.at > notifSeen.reviewsAt && !blocked.includes(r.uid))
+        .sort((a, b) => a[1].at - b[1].at)
+        .forEach(([id, r]) => addNotif({ id: `rev_${id}_${r.at}`, type: "review", text: `@${r.handle} avaliou ${r.game}`, sub: r.rating ? "★".repeat(r.rating) : (r.text || "").slice(0, 80), cover: safeImg(r.cover), act: { kind: "game", gameKey: r.gameKey, title: r.game, cover: safeImg(r.cover) } }));
+    }
+    notifSeen.reviewsAt = Date.now();
+  } finally {
+    store.save("backlog.notifSeen.v1", notifSeen);
+    notifChecking = false;
+  }
+}
+
+function notifIcon(n) {
+  if (n.type === "follow") return avatarFor(n.who || { handle: "?", color: "#FFD21F" }, 44);
+  if (n.type === "review") return `<span class="n-cover">${coverHTML([n.cover].filter(Boolean), n.text)}</span>`;
+  return `<span class="n-ico n-${n.type}">${N_ICON[n.type] || BELL}</span>`;
+}
+function openNotifs() {
+  const fresh = notifs.filter(n => !n.read), old = notifs.filter(n => n.read);
+  const row = (n, i) => `<li><button class="n-row ${n.read ? "" : "is-new"}" data-n="${i}">
+      ${notifIcon(n)}
+      <span class="n-text"><b>${esc(n.text)}</b>${n.sub ? `<small>${esc(n.sub)}</small>` : ""}</span>
+      <span class="n-time">${ago(n.t)}</span></button></li>`;
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Fechar">${ICON.close}</button>
+      ${notifs.length ? `<button class="link-btn" id="n-clear" style="margin:0">Limpar tudo</button>` : ""}</div>
+    <h2 class="hero-title" style="margin-top:18px">Notificações</h2>
+    ${!notifs.length ? `<p class="hero-sub">Nada novo por aqui. Quando alguém seguir você, curtir suas avaliações, quem você segue avaliar um jogo ou sair versão nova do app, aparece aqui.</p>
+      ${!socialReady() ? `<p class="panel-note">Entre na aba Rede para receber avisos de seguidores e curtidas.</p>` : ""}` : ""}
+    ${fresh.length ? `<div class="n-group">Novas</div><ul class="n-list">${fresh.map(n => row(n, notifs.indexOf(n))).join("")}</ul>` : ""}
+    ${old.length ? `<div class="n-group">Anteriores</div><ul class="n-list">${old.map(n => row(n, notifs.indexOf(n))).join("")}</ul>` : ""}`,
+    null, async () => { await checkNotifs(); openNotifs(); });
+  const snapshot = notifs.slice();
+  body.querySelectorAll("[data-n]").forEach(b => b.onclick = () => {
+    const n = snapshot[+b.dataset.n], a = n.act || {}, back = () => openNotifs();
+    if (a.kind === "profile" && socialReady()) openNetProfile(a.uid, back);
+    else if (a.kind === "game" && socialReady()) openNetGame(a.gameKey, a.title, a.cover, back);
+    else if (a.kind === "update") { if (updateInfo) { updateState = updateState === "ready" ? "ready" : "idle"; openUpdateSheet(); } else { go("settings"); closeSheet(); } }
+    else if (a.kind === "goal") openGoals();
+  });
+  const clr = body.querySelector("#n-clear");
+  if (clr) clr.onclick = () => { notifs = []; saveNotifs(); openNotifs(); };
+  // Abriu: tudo vira lido
+  if (fresh.length) { notifs.forEach(n => { n.read = true; }); saveNotifs(); }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkNotifs(); });
+setInterval(() => { if (!document.hidden) checkNotifs(); }, 5 * 60 * 1000);
+
 /* Botão voltar do Android */
 window.__onBack = () => {
   if (!sheet.hidden) { sheetBack ? sheetBack() : closeSheet(); return true; }
@@ -3657,6 +3868,7 @@ applyTheme();
 renderLibrary();
 startCloud();
 setTimeout(autoUpdateCheck, 2500);
+setTimeout(checkNotifs, 4000);
 // Jogos sem cópia local da capa: baixa em segundo plano, 2 de cada vez
 setTimeout(ensureCovers, 1200);
 setTimeout(loadWikiThumbs, 1500);
