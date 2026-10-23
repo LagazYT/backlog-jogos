@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v5
       - run: |
           mkdir -p probe
-          python3 - <<'PY' > probe/result.txt 2>&1
+          python3 - <<'PY' > probe/result.txt 2>&1 || true
           import json, urllib.request, urllib.error, time
           KEY = "AIzaSyBt6nEnC3Bxgyxh1C5YzmitTJxxoD9zqjg"
           DB = "https://backlog-jogos-c12e9-default-rtdb.firebaseio.com"
@@ -51,6 +51,7 @@ jobs:
               print("del", p.split("/")[0], call("DELETE", f"{DB}/{p}.json?{A}")[0])
           print("account delete", call("POST", f"https://identitytoolkit.googleapis.com/v1/accounts:delete?key={KEY}", {"idToken": tok})[0])
           PY
+          true
           cat probe/result.txt
           git config user.name probe; git config user.email probe@example.com
           git add probe && git commit -m probe && git push
