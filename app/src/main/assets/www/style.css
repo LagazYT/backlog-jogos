@@ -656,3 +656,37 @@ textarea.review:focus { border-color: var(--accent); }
 .switch.is-on { background: var(--accent); }
 .switch.is-on::after { transform: translateX(22px); background: var(--on-accent); }
 .actions .two-btns .btn svg { width: 18px; height: 18px; }
+
+/* ---------- Selo de plataforma, estante por plataforma ---------- */
+.plat-badge {
+  position: absolute; z-index: 3; top: 6px; right: 6px;
+  font-size: 9px; font-weight: 800; letter-spacing: .06em; line-height: 1;
+  padding: 4px 5px; border-radius: 5px;
+  background: rgba(11, 11, 12, .62); color: rgba(246, 244, 238, .92);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+.rail-card .plat-badge { top: 8px; right: 8px; }
+.chips-sub { padding-top: 8px; }
+.chips-sub .chip { height: 32px; font-size: 12.5px; background: transparent; }
+.chips-sub .chip.is-on { background: var(--text); color: var(--bg); border-color: var(--text); }
+.chips-sub .chip.is-on .count { color: var(--bg); opacity: .6; }
+.plat-logo b { font-stretch: 75%; font-weight: 900; font-size: 15px; letter-spacing: .02em; }
+.plat-logo.big b { font-size: 24px; }
+
+/* ---------- Rolagem infinita e puxar para atualizar ---------- */
+.sentinel { display: grid; place-items: center; padding: 22px 0; }
+.ptr-spin { width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.ptr {
+  position: fixed; z-index: 70; left: 50%; top: calc(var(--safe-top) + 8px);
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--bg-2); border: 1px solid var(--line); color: var(--muted);
+  box-shadow: 0 8px 20px -8px rgba(0,0,0,.6);
+  transform: translate(-50%, -60px); opacity: 0; pointer-events: none;
+}
+.ptr svg { width: 20px; height: 20px; }
+.ptr.is-ready { color: var(--accent-text); }
+.ptr.is-loading svg { animation: spin .8s linear infinite; }
+.ptr.is-back { transition: transform .2s, opacity .2s; }
+#hltb-form { margin-top: 14px; }

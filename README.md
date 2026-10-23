@@ -31,10 +31,12 @@ Feito pelo canal **Lagaz**, pra quem leva a sério essa coisa de "um dia eu zero
 | 🕹️ **Plataforma em que você jogou** | PC, Xbox, PlayStation, Switch 1 ou Switch 2. |
 | ⭐ **Nota e análise** | De 1 a 5 estrelas, mais um espaço pra escrever o que achou da história, do final, daquele chefe maldito… |
 | ⏱️ **Quantas horas levou** | Anota suas horas e o app compara com a média: "você zerou 8 h abaixo da média", essas coisas. |
-| 📊 **Tempo pra zerar** | Lista de single players populares com o tempo médio de *História*, *História + extras* e *100%*, no estilo HowLongToBeat. |
-| 🔥 **Em alta agora** | Os single players com mais gente jogando neste exato momento, com número ao vivo da Steam. |
+| 📊 **Tempo pra zerar** | Milhares de jogos com o tempo médio de *História*, *História + extras* e *100%*, puxados do HowLongToBeat. Filtra por duração e plataforma, busca qualquer jogo e rola sem fim. |
+| 🔥 **Em alta agora** | Os jogos single player mais jogados da Steam neste momento, com número ao vivo, sem limite: é só ir rolando. |
 | 🏆 **Rastreador de conquistas** | Pesquisa um jogo da Steam e vê todas as conquistas (em português!), quantos % dos jogadores têm cada uma, quais são raras e secretas. Vai marcando as que você fez e acompanha o progresso. |
-| 🎲 **Roleta do backlog** | Não sabe o que jogar? Diz quanto tempo tem (até 10 h, 10 a 30 h…) e o app sorteia um jogo da sua lista. |
+| 🎲 **Roleta** | Não sabe o que jogar? Diz quanto tempo tem (até 10 h, 10 a 30 h…) e o app sorteia um jogo da sua lista, ou qualquer jogo do mundo. |
+| 🗂️ **Estante por plataforma** | Jogos separados em blocos de PC, PlayStation, Xbox e Switch, com um selo discreto em cada capa. |
+| 🔃 **Puxar para atualizar** | Arrasta a tela pra baixo e a página recarrega. |
 | 🎯 **Metas do ano** | "Zerar 12 jogos em 2026", com barra de progresso, ritmo ("você está 2 à frente") e gráfico por mês. |
 | 🕰️ **Linha do tempo** | Toda a história da sua estante: quando começou, zerou, largou ou avaliou cada jogo. |
 | 📸 **Cartão de compartilhar** | Gera uma imagem bonita do jogo (capa, nota, horas e sua análise) ou da sua meta, pronta pros Stories ou pro feed. |

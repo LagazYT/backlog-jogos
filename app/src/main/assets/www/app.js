@@ -142,9 +142,10 @@ function popCovers(p) {
 
 /* opts.ck = chave de cache (salva a imagem quando carregar)
    opts.wiki = título da Wikipédia para usar como última alternativa */
+const PLAT_TAG = { PC: "PC", PlayStation: "PS", Xbox: "XBOX", Switch: "SWITCH", "Switch 2": "SWITCH 2" };
 function coverHTML(urls, title, opts = {}) {
   const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);
-  const fb = `<div class="cover-fallback">${esc(title)}</div>`;
+  const fb = `<div class="cover-fallback">${esc(title)}</div>${opts.plat && PLAT_TAG[opts.plat] ? `<span class="plat-badge" aria-label="${esc(platLabel(opts.plat))}">${PLAT_TAG[opts.plat]}</span>` : ""}`;
   const wikiAttr = opts.wiki ? ` data-wiki="${esc(opts.wiki)}"` : "";
   if (!list.length) return `<div class="cover"${wikiAttr}>${fb}</div>`;
   const co = /upload\.wikimedia\.org/.test(list[0]) ? ' crossorigin="anonymous"' : "";
@@ -314,7 +315,7 @@ document.addEventListener("click", e => { const g = e.target.closest("[data-goto
 /* =========================================================
    Biblioteca
    ========================================================= */
-let libFilter = "all";
+let libFilter = "all", libPlat = "all";
 const gameCovers = g => [g.cover, g.coverRemote, ...(g.coverAlts || [])].filter((u, i, a) => u && a.indexOf(u) === i);
 
 function sortGames(list) {
@@ -332,6 +333,7 @@ function renderLibrary() {
   renderAvatarButton();
   $("#lib-empty").hidden = games.length > 0;
   $("#lib-filters").hidden = games.length === 0;
+  $("#lib-plats").hidden = games.length === 0;
 
   // Distribuição por status
   $("#lib-overview").innerHTML = games.length ? `<div class="overview">
@@ -346,7 +348,7 @@ function renderLibrary() {
   $("#lib-playing").innerHTML = playing.length && libFilter === "all" ? `
     <div class="section-label">Jogando agora <small>${playing.length}</small></div>
     <div class="rail">${playing.map(g => `<button class="rail-card" data-id="${g.id}">
-        ${coverHTML(gameCovers(g), g.title)}
+        ${coverHTML(gameCovers(g), g.title, { plat: g.platform })}
         <div class="case-title">${esc(g.title)}</div>
         <div class="case-sub">${esc(platLabel(g.platform))}${g.hours ? `, ${fmtH(g.hours)} h` : ""}</div>
       </button>`).join("")}</div>` : "";
@@ -355,22 +357,53 @@ function renderLibrary() {
     .map(s => `<button class="chip ${libFilter === s.id ? "is-on" : ""}" data-f="${s.id}">${s.label} <span class="count">${counts[s.id]}</span></button>`)
     .join("");
 
-  const list = sortGames(games.filter(g => libFilter === "all" ? g.status !== "playing" || !playing.length : g.status === libFilter));
-  const shelfLabel = libFilter === "all" && playing.length ? `<div class="section-label" style="grid-column:1/-1;margin:6px 0 0">Na estante <small>${list.length}</small></div>` : "";
-  $("#lib-grid").innerHTML = games.length ? shelfLabel + (list.map(g => {
+  // Plataformas presentes na estante
+  const platOrder = [...PLATFORMS, ""];
+  const platCount = {};
+  games.forEach(g => { const p = PLATFORMS.includes(g.platform) ? g.platform : ""; platCount[p] = (platCount[p] || 0) + 1; });
+  const plats = platOrder.filter(p => platCount[p]);
+  if (libPlat !== "all" && !platCount[libPlat]) libPlat = "all";
+  $("#lib-plats").hidden = plats.length < 2;
+  $("#lib-plats").innerHTML = [["all", "Todas", games.length], ...plats.map(p => [p, p ? platLabel(p) : "Sem plataforma", platCount[p]])]
+    .map(([v, l, c]) => `<button class="chip chip-plat ${libPlat === v ? "is-on" : ""}" data-pl="${v}">${l} <span class="count">${c}</span></button>`).join("");
+
+  const inPlat = g => libPlat === "all" || (libPlat === "" ? !PLATFORMS.includes(g.platform) : g.platform === libPlat);
+  const list = sortGames(games.filter(g => inPlat(g) && (libFilter === "all" ? g.status !== "playing" || !playing.length : g.status === libFilter)));
+  const caseHTML = g => {
     const st = statusOf(g.status);
     const stars = g.rating ? `<span class="minstars">${"★".repeat(g.rating)}</span>` : "";
     return `<button class="case" data-id="${g.id}">
-      ${coverHTML(gameCovers(g), g.title)}
+      ${coverHTML(gameCovers(g), g.title, { plat: g.platform })}
       <div class="case-title">${esc(g.title)}</div>
-      <div class="case-sub"><span class="pip" style="background:${st.color}"></span>${esc(platLabel(g.platform) || st.label)} ${stars}</div>
+      <div class="case-sub"><span class="pip" style="background:${st.color}"></span>${esc(st.label)} ${stars}</div>
     </button>`;
-  }).join("") || `<p class="status-line" style="grid-column:1/-1;padding:0">Nenhum jogo com esse status.</p>`) : "";
+  };
+  const sectionHead = (label, n, first) => `<div class="section-label shelf-head" style="grid-column:1/-1;margin:${first ? "6px" : "18px"} 0 0">${label} <small>${n}</small></div>`;
+  let gridHTML = "";
+  if (!list.length) gridHTML = `<p class="status-line" style="grid-column:1/-1;padding:0">Nenhum jogo com esse filtro.</p>`;
+  else if (libPlat === "all" && plats.length > 1) {
+    // Separado por plataforma: cada uma com seu bloco
+    let first = true;
+    platOrder.forEach(p => {
+      const part = list.filter(g => (PLATFORMS.includes(g.platform) ? g.platform : "") === p);
+      if (!part.length) return;
+      const src = p === "PC" && part.some(g => g.sources && g.sources.steam) ? " e Steam" : "";
+      gridHTML += sectionHead(esc(p ? platLabel(p) + src : "Sem plataforma"), part.length, first) + part.map(caseHTML).join("");
+      first = false;
+    });
+  } else {
+    gridHTML = (libFilter === "all" && playing.length ? sectionHead("Na estante", list.length, true) : "") + list.map(caseHTML).join("");
+  }
+  $("#lib-grid").innerHTML = games.length ? gridHTML : "";
   renderLibExtras();
 }
 $("#lib-filters").addEventListener("click", e => {
   const c = e.target.closest("[data-f]");
   if (c) { libFilter = c.dataset.f; renderLibrary(); }
+});
+$("#lib-plats").addEventListener("click", e => {
+  const c = e.target.closest("[data-pl]");
+  if (c) { libPlat = c.dataset.pl; renderLibrary(); }
 });
 $("#view-library").addEventListener("click", e => {
   const c = e.target.closest("[data-id]");
@@ -448,84 +481,282 @@ function renderExplore() {
   loadWikiThumbs();
 }
 
-let playersCache = store.load("backlog.players.v1", { at: 0, data: {} });
-let trendingLoading = false;
-async function renderTrending() {
+/* =========================================================
+   Explorar: catálogo sem limite
+   "Em alta agora": jogos single player mais jogados da Steam, página por página.
+   "Tempo pra zerar": HowLongToBeat (busca interna do site, não oficial).
+   ========================================================= */
+const HLTB = "https://howlongtobeat.com";
+const HLTB_PLAT = { PC: "PC", PlayStation: "PlayStation 5", Xbox: "Xbox Series X/S", Switch: "Nintendo Switch", "Switch 2": "Nintendo Switch 2" };
+let hltbToken = null, hltbTokenAt = 0;
+const hltbHeaders = () => ({ "Content-Type": "application/json", "Accept": "application/json", "Referer": HLTB + "/", "Origin": HLTB });
+async function hltbInit(force) {
+  if (hltbToken && !force && Date.now() - hltbTokenAt < 10 * 60 * 1000) return hltbToken;
+  const r = await http("GET", `${HLTB}/api/search/site/init?t=${Date.now()}`, { headers: hltbHeaders() });
+  if (r.status !== 200) throw new Error("HTTP " + r.status);
+  hltbToken = JSON.parse(r.body).token; hltbTokenAt = Date.now();
+  return hltbToken;
+}
+const hrs = s => Math.round((s || 0) / 360) / 10;
+function hltbItem(x) {
+  const main = hrs(x.comp_main), extra = hrs(x.comp_plus) || main, full = hrs(x.comp_100) || extra;
+  return {
+    src: "hltb", id: x.game_id, title: x.game_name, year: x.release_world ? String(x.release_world) : "",
+    sp: x.comp_lvl_sp === 1, main, extra: Math.max(extra, main), full: Math.max(full, extra, main),
+    platforms: (x.profile_platform || "").split(", ").filter(Boolean),
+    covers: x.game_image ? [`${HLTB}/games/${encodeURIComponent(x.game_image)}?width=300`] : [],
+    playing: x.count_playing || 0
+  };
+}
+async function hltbSearch(o = {}, retry) {
+  const tok = await hltbInit(retry);
+  const payload = {
+    searchType: "games", searchTerms: o.terms || [], searchPage: o.page || 1, size: 20,
+    searchOptions: {
+      games: {
+        userId: 0, platform: o.platform ? { mode: "include", values: [o.platform] } : { mode: "include", values: [] },
+        sortCategory: o.sort || "popular", rangeCategory: "main",
+        rangeTime: { min: o.min ?? null, max: o.max ?? null },
+        gameplay: { perspective: { mode: "include", values: [] }, flow: { mode: "include", values: [] }, genre: { mode: "include", values: [] } },
+        year: { mode: "include", values: [] }, modifier: ""
+      },
+      users: { sortCategory: "postcount" }, lists: { sortCategory: "follows" }, filter: "", sort: 0, randomizer: 0
+    },
+    useCache: true
+  };
+  const r = await http("POST", `${HLTB}/api/search/site`, { headers: { ...hltbHeaders(), "x-auth-token": tok }, body: JSON.stringify(payload) });
+  if (r.status === 403 && !retry) return hltbSearch(o, true);
+  if (r.status !== 200) throw new Error("HTTP " + r.status);
+  const d = JSON.parse(r.body);
+  const items = (d.data || []).filter(x => x.game_type === "game" && x.comp_main > 0).map(hltbItem);
+  items.forEach(rememberTimes);
+  return { total: d.count || 0, pages: d.pageTotal || 0, items };
+}
+
+/* Tempos guardados por nome, para mostrar em qualquer lugar sem buscar de novo */
+let timesCache = store.load("backlog.times.v1", {});
+function rememberTimes(it) {
+  timesCache[norm(it.title)] = { main: it.main, extra: it.extra, full: it.full, at: Date.now() };
+  const keys = Object.keys(timesCache);
+  if (keys.length > 600) keys.sort((a, b) => timesCache[a].at - timesCache[b].at).slice(0, keys.length - 600).forEach(k => delete timesCache[k]);
+  clearTimeout(rememberTimes.t);
+  rememberTimes.t = setTimeout(() => store.save("backlog.times.v1", timesCache), 800);
+}
+function knownTimes(title, wiki) {
+  const p = findPopular(title, wiki);
+  if (p) return p;
+  return timesCache[norm(title)] || null;
+}
+const triedTimes = new Set();
+async function fetchTimes(title) {
+  const k = norm(title);
+  const known = knownTimes(title);
+  if (known) return known;
+  if (triedTimes.has(k)) return null;
+  triedTimes.add(k);
+  try {
+    const terms = cleanWikiTitle(title).replace(/[™®©]/g, "").split(/\s+/).filter(Boolean);
+    const r = await hltbSearch({ terms });
+    const hit = r.items.find(x => norm(x.title) === k) || r.items.find(x => norm(x.title).startsWith(k)) || r.items[0];
+    if (!hit) return null;
+    const t = { main: hit.main, extra: hit.extra, full: hit.full, at: Date.now() };
+    timesCache[k] = t; store.save("backlog.times.v1", timesCache);
+    return t;
+  } catch (_) { triedTimes.delete(k); return null; }
+}
+function timesPanelHTML(p) {
+  return `<div class="panel">
+    <span class="field-label">Tempo médio para zerar</span>
+    ${barsHTML(p, Math.max(p.full, p.extra, p.main))}
+    <p class="panel-note" id="compare" hidden></p>
+  </div>`;
+}
+
+/* --- Rolagem infinita --- */
+function infinite(listEl, loadMore) {
+  const old = listEl.parentElement.querySelector(".sentinel");
+  if (old) old.remove();
+  const s = document.createElement("div");
+  s.className = "sentinel";
+  s.innerHTML = `<span class="ptr-spin"></span>`;
+  listEl.after(s);
+  let busy = false, done = false;
+  const io = new IntersectionObserver(async es => {
+    if (!es[0].isIntersecting || busy || done) return;
+    busy = true;
+    try { done = !(await loadMore()); } catch (_) { done = true; s.innerHTML = `<button class="link-btn" type="button">Tentar carregar mais</button>`; s.querySelector("button").onclick = () => { s.innerHTML = `<span class="ptr-spin"></span>`; done = false; busy = false; io.unobserve(s); io.observe(s); }; }
+    busy = false;
+    if (done && !s.querySelector("button")) s.remove();
+    else if (!done) { io.unobserve(s); io.observe(s); }
+  }, { rootMargin: "600px" });
+  io.observe(s);
+  return () => { io.disconnect(); s.remove(); };
+}
+
+/* --- Em alta agora (Steam) --- */
+let trend = { page: 0, items: [], stop: null, players: store.load("backlog.players.v2", {}) };
+function steamRowsFrom(html) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return [...doc.querySelectorAll("a[data-ds-appid]")].map(a => ({
+    src: "steam", steam: +String(a.getAttribute("data-ds-appid")).split(",")[0],
+    title: (a.querySelector(".title") || {}).textContent || "",
+    year: (((a.querySelector(".search_released") || {}).textContent || "").match(/\d{4}/) || [""])[0]
+  })).filter(x => x.steam && x.title);
+}
+async function trendingPage() {
+  const start = trend.page * 25;
+  const d = await getJSON(`https://store.steampowered.com/search/results/?query=&start=${start}&count=25&category1=998&category2=2&filter=mostplayed&infinite=1&cc=BR&l=portuguese`);
+  const rows = steamRowsFrom(d.results_html || "").filter(r => !trend.items.some(x => x.steam === r.steam));
+  await Promise.allSettled(rows.map(r => getJSON(`https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=${r.steam}`)
+    .then(j => { r.players = j.response?.player_count ?? 0; trend.players[r.steam] = r.players; })));
+  store.save("backlog.players.v2", trend.players);
+  rows.forEach(r => { r.covers = [...steamCovers(r.steam), steamHeader(r.steam)]; });
+  trend.page++;
+  trend.items.push(...rows);
+  return { rows, more: rows.length > 0 && start + 25 < (d.total_count || 0) };
+}
+function trendRowHTML(r, i) {
+  const t = knownTimes(r.title);
+  return `<li><button class="row rank-row" data-ti="${i}">
+    <span class="rank">${i + 1}</span>
+    ${coverHTML(r.covers, r.title, { ck: "st_" + r.steam })}
+    <div>
+      <div class="row-title">${esc(r.title)}</div>
+      <div class="row-sub">${r.players ? `<span class="live">${fmtN(r.players)} jogando agora</span>` : esc(r.year)}</div>
+    </div>
+    ${t ? `<span class="pill">${fmtH(t.main)} h</span>` : `<span></span>`}
+  </button></li>`;
+}
+async function renderTrending(reset) {
   const list = $("#trending-list");
-  const fresh = Date.now() - playersCache.at < 10 * 60 * 1000 && Object.keys(playersCache.data).length;
-  if (fresh) return drawTrending();
-  if (Object.keys(playersCache.data).length) drawTrending(); else list.innerHTML = skeletonRows(6);
-  if (trendingLoading) return;
-  trendingLoading = true;
-  const withSteam = POPULAR_GAMES.filter(p => p.steam);
-  const results = await Promise.allSettled(withSteam.map(p =>
-    getJSON(`https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=${p.steam}`)
-      .then(d => [p.steam, d.response?.player_count ?? 0])));
-  trendingLoading = false;
-  const data = {};
-  results.forEach(r => { if (r.status === "fulfilled") data[r.value[0]] = r.value[1]; });
-  if (Object.keys(data).length) {
-    playersCache = { at: Date.now(), data };
-    store.save("backlog.players.v1", playersCache);
-    drawTrending();
-  } else if (!Object.keys(playersCache.data).length) {
-    list.innerHTML = "";
-    $("#explore-trending .lede").textContent = window.__PREVIEW
-      ? "Na prévia não há conexão com a Steam. No app instalado, esta lista mostra quantas pessoas estão jogando agora."
-      : "Sem conexão com a Steam agora. Conecte-se à internet e abra a aba de novo.";
+  if (reset || !trend.items.length) {
+    if (trend.stop) trend.stop();
+    trend = { page: 0, items: [], stop: null, players: trend.players };
+    list.innerHTML = skeletonRows(6);
+    try {
+      const { more } = await trendingPage();
+      list.innerHTML = trend.items.map(trendRowHTML).join("");
+      $("#explore-trending .lede").textContent = "Jogos com modo single player que mais gente está jogando agora na Steam. Role para ver mais.";
+      if (more) trend.stop = infinite(list, async () => {
+        const n = trend.items.length;
+        const r = await trendingPage();
+        list.insertAdjacentHTML("beforeend", r.rows.map((x, i) => trendRowHTML(x, n + i)).join(""));
+        return r.more;
+      });
+    } catch (_) {
+      // Sem internet: usa a lista que vem no app
+      const data = playersCache.data || {};
+      const ranked = POPULAR_GAMES.filter(p => p.steam).sort((a, b) => (data[b.steam] || 0) - (data[a.steam] || 0));
+      trend.items = ranked.map(p => ({ src: "steam", steam: p.steam, title: p.title, year: String(p.year), players: data[p.steam] || 0, covers: popCovers(p), pop: p }));
+      list.innerHTML = trend.items.map(trendRowHTML).join("");
+      $("#explore-trending .lede").textContent = window.__PREVIEW ? "Prévia sem conexão com a Steam: mostrando a lista que vem no app." : "Sem conexão com a Steam agora. Mostrando a lista que vem no app. Puxe para baixo para tentar de novo.";
+    }
   }
 }
-function drawTrending() {
-  const data = playersCache.data;
-  const ranked = POPULAR_GAMES.filter(p => p.steam && data[p.steam] > 0).sort((a, b) => data[b.steam] - data[a.steam]);
-  $("#trending-list").innerHTML = ranked.map((p, i) => `<li><button class="row rank-row" data-p="${POPULAR_GAMES.indexOf(p)}">
-      <span class="rank">${i + 1}</span>
-      ${coverHTML(popCovers(p), p.title, { ck: popKey(p), wiki: p.wiki })}
-      <div>
-        <div class="row-title">${esc(p.title)}</div>
-        <div class="row-sub"><span class="live">${fmtN(data[p.steam])} jogando agora</span></div>
-      </div>
-      <span class="pill">${fmtH(p.main)} h</span>
-    </button></li>`).join("");
-}
+let playersCache = store.load("backlog.players.v1", { at: 0, data: {} });
 $("#trending-list").addEventListener("click", e => {
-  const b = e.target.closest("[data-p]");
-  if (b) openPopular(POPULAR_GAMES[+b.dataset.p]);
+  const b = e.target.closest("[data-ti]");
+  if (b) openCatalog(trend.items[+b.dataset.ti]);
 });
 
-let hltbSort = "popular";
-function renderHltb() {
-  $("#hltb-sort").innerHTML = [["popular", "Mais jogados"], ["short", "Mais curtos"], ["long", "Mais longos"]]
-    .map(([id, l]) => `<button class="chip ${hltbSort === id ? "is-on" : ""}" data-s="${id}">${l}</button>`).join("");
-  const list = POPULAR_GAMES.map((p, i) => ({ p, i }));
-  if (hltbSort === "short") list.sort((a, b) => a.p.main - b.p.main);
-  if (hltbSort === "long") list.sort((a, b) => b.p.main - a.p.main);
-  const max = Math.max(...POPULAR_GAMES.map(p => p.full));
-  $("#hltb-list").innerHTML = list.map(({ p, i }) => `<li><button class="hltb-item" data-p="${i}">
-      ${coverHTML(popCovers(p), p.title, { ck: popKey(p), wiki: p.wiki })}
-      <div>
-        <div class="hltb-title">${esc(p.title)}</div>
-        <div class="hltb-sub">${p.year}, ${esc(p.genre)}</div>
-        ${barsHTML(p, max)}
-      </div></button></li>`).join("");
+/* --- Tempo pra zerar (HowLongToBeat) --- */
+const HLTB_RANGES = [["any", "Mais populares", null, null], ["s", "Até 10 h", null, 10], ["m", "10 a 30 h", 10, 30], ["l", "30 a 60 h", 30, 60], ["xl", "Mais de 60 h", 60, null]];
+let hl = { range: "any", platform: "", q: "", page: 0, items: [], stop: null };
+function hltbRowHTML(p, i) {
+  return `<li><button class="hltb-item" data-hi="${i}">
+    ${coverHTML(p.covers, p.title)}
+    <div>
+      <div class="hltb-title">${esc(p.title)}</div>
+      <div class="hltb-sub">${[p.year, p.platforms.slice(0, 3).join(", ")].filter(Boolean).map(esc).join(", ")}</div>
+      ${barsHTML(p, 120)}
+    </div></button></li>`;
 }
-$("#hltb-sort").addEventListener("click", e => {
-  const c = e.target.closest("[data-s]");
-  if (c) { hltbSort = c.dataset.s; renderHltb(); }
-});
-$("#hltb-list").addEventListener("click", e => {
-  const b = e.target.closest("[data-p]");
-  if (b) openPopular(POPULAR_GAMES[+b.dataset.p]);
-});
+function hltbQuery(page) {
+  const r = HLTB_RANGES.find(x => x[0] === hl.range);
+  return { terms: hl.q ? hl.q.split(/\s+/) : [], page, min: hl.q ? null : r[2], max: hl.q ? null : r[3], platform: hl.q ? "" : HLTB_PLAT[hl.platform] || "" };
+}
+async function hltbPage() {
+  const res = await hltbSearch(hltbQuery(hl.page + 1));
+  hl.page++;
+  const rows = res.items.filter(x => (hl.q || x.sp) && !hl.items.some(y => y.id === x.id));
+  hl.items.push(...rows);
+  return { rows, more: hl.page < res.pages };
+}
+async function renderHltb(reset) {
+  $("#hltb-sort").innerHTML = HLTB_RANGES.map(([id, l]) => `<button class="chip ${hl.range === id ? "is-on" : ""}" data-s="${id}">${l}</button>`).join("");
+  $("#hltb-plat").innerHTML = [["", "Todas"], ...PLATFORMS.map(p => [p, platLabel(p)])].map(([v, l]) => `<button class="chip ${hl.platform === v ? "is-on" : ""}" data-pl="${v}">${l}</button>`).join("");
+  $("#hltb-sort").hidden = $("#hltb-plat").hidden = !!hl.q;
+  if (!reset && hl.items.length) return;
+  const list = $("#hltb-list");
+  if (hl.stop) hl.stop();
+  hl = { ...hl, page: 0, items: [], stop: null };
+  list.innerHTML = skeletonRows(5);
+  try {
+    const { more } = await hltbPage();
+    list.innerHTML = hl.items.length ? hl.items.map(hltbRowHTML).join("") : `<p class="status-line" style="padding:0">Nenhum jogo encontrado${hl.q ? ` para “${esc(hl.q)}”` : ""}.</p>`;
+    $("#hltb-note").textContent = "Dados do HowLongToBeat, média da comunidade em horas. Role para ver mais.";
+    if (more) hl.stop = infinite(list, async () => {
+      const n = hl.items.length;
+      const r = await hltbPage();
+      list.insertAdjacentHTML("beforeend", r.rows.map((x, i) => hltbRowHTML(x, n + i)).join(""));
+      return r.more;
+    });
+  } catch (_) {
+    hl.items = POPULAR_GAMES.filter(p => !hl.q || norm(p.title).includes(norm(hl.q))).map(p => ({ ...p, src: "local", covers: popCovers(p), year: String(p.year) }));
+    list.innerHTML = hl.items.map(hltbRowHTML).join("");
+    $("#hltb-note").textContent = window.__PREVIEW ? "Prévia sem conexão: mostrando a lista que vem no app." : "Sem conexão com o HowLongToBeat agora. Mostrando a lista que vem no app. Puxe para baixo para tentar de novo.";
+  }
+}
+$("#hltb-sort").addEventListener("click", e => { const c = e.target.closest("[data-s]"); if (c) { hl.range = c.dataset.s; renderHltb(true); } });
+$("#hltb-plat").addEventListener("click", e => { const c = e.target.closest("[data-pl]"); if (c) { hl.platform = c.dataset.pl; renderHltb(true); } });
+$("#hltb-list").addEventListener("click", e => { const b = e.target.closest("[data-hi]"); if (b) openCatalog(hl.items[+b.dataset.hi]); });
+let hlDeb;
+$("#hltb-q").addEventListener("input", e => { clearTimeout(hlDeb); hlDeb = setTimeout(() => { hl.q = e.target.value.trim(); renderHltb(true); }, 450); });
+$("#hltb-form").addEventListener("submit", e => { e.preventDefault(); clearTimeout(hlDeb); $("#hltb-q").blur(); hl.q = $("#hltb-q").value.trim(); renderHltb(true); });
+
+/* --- Ficha de um jogo do catálogo --- */
+async function openCatalog(it, back) {
+  if (!it) return;
+  if (it.pop) return openPopular(it.pop);
+  const owned = games.find(g => norm(g.title) === norm(it.title));
+  const t0 = it.main ? it : knownTimes(it.title);
+  const players = it.steam ? (it.players || trend.players[it.steam]) : 0;
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="${back ? "Voltar" : "Fechar"}">${back ? ICON.back : ICON.close}</button></div>
+    <div class="hero">
+      ${coverHTML(it.covers || [], it.title)}
+      <div>
+        <h2 class="hero-title">${esc(it.title)}</h2>
+        <div class="hero-sub">${[it.year, (it.platforms || []).slice(0, 4).join(", ")].filter(Boolean).map(esc).join("<br>")}</div>
+        ${players ? `<div class="hero-sub"><span class="live">${fmtN(players)} jogando agora</span></div>` : ""}
+      </div>
+    </div>
+    <div id="cat-times">${t0 ? timesPanelHTML(t0) : `<div class="panel"><span class="field-label">Tempo médio para zerar</span><p class="panel-note" style="margin:0">Procurando no HowLongToBeat…</p></div>`}</div>
+    <div class="actions">
+      <button class="btn ${owned ? "btn-ghost" : "btn-primary"}" id="cat-add">${owned ? "Abrir na minha estante" : "Adicionar à estante"}</button>
+      ${it.steam ? `<button class="btn btn-ghost" id="cat-ach">${ICON.trophy}Ver conquistas</button>` : ""}
+    </div>`, back);
+  const reopen = () => openCatalog(it, back);
+  body.querySelector("#cat-add").onclick = () => owned ? openGame(owned, null, reopen)
+    : openGame(null, { title: it.title, year: it.year || "", covers: it.covers || [], steamId: it.steam }, reopen);
+  const a = body.querySelector("#cat-ach");
+  if (a) a.onclick = () => openAchievements(it.steam, it.title, reopen);
+  if (!t0) {
+    const t = await fetchTimes(it.title);
+    const box = body.querySelector("#cat-times");
+    if (box) box.innerHTML = t ? timesPanelHTML(t) : `<div class="panel"><span class="field-label">Tempo médio para zerar</span><p class="panel-note" style="margin:0">O HowLongToBeat ainda não tem tempo para esse jogo.</p></div>`;
+  }
+}
 
 /* =========================================================
    Folha (tela por cima) com voltar
    ========================================================= */
 const sheet = $("#sheet"), body = $("#sheet-body");
-let sheetBack = null;
+let sheetBack = null, sheetReload = null;
 
-function showSheet(html, back) {
+function showSheet(html, back, reload) {
   sheetBack = back || null;
+  sheetReload = reload || null;
   body.innerHTML = html;
   sheet.hidden = false;
   sheet.classList.remove("is-closing");
@@ -544,7 +775,7 @@ function closeSheet() {
     sheet.classList.remove("is-closing");
     document.body.style.overflow = "";
     body.innerHTML = "";
-    sheetBack = null;
+    sheetBack = null; sheetReload = null;
   }, 170);
 }
 sheet.querySelector(".sheet-scrim").addEventListener("click", closeSheet);
@@ -582,7 +813,7 @@ function openGame(game, result, back) {
     ? { title: result.title, year: result.year, covers: result.covers || [], wiki: result.wiki, steamId: result.steamId,
         platform: settings.defaultPlatform, status: "backlog", rating: 0, review: "", hours: "" }
     : { ...game };
-  const pop = findPopular(draft.title, draft.wiki);
+  let pop = knownTimes(draft.title, draft.wiki);
   const covers = isNew ? draft.covers : gameCovers(game);
   const steamId = draft.steamId || (pop && pop.steam);
 
@@ -651,11 +882,7 @@ function openGame(game, result, back) {
       <p class="panel-note" id="net-sum" style="margin-top:12px">Carregando o que a rede achou…</p>
     </div>` : ""}
 
-    ${pop ? `<div class="panel">
-      <span class="field-label">Tempo médio para zerar</span>
-      ${barsHTML(pop, pop.full)}
-      <p class="panel-note" id="compare" hidden></p>
-    </div>` : ""}
+    <div id="times-panel">${pop ? timesPanelHTML(pop) : ""}</div>
 
     <div class="actions">
       <button class="btn btn-primary" id="save">${isNew ? "Adicionar à biblioteca" : "Salvar alterações"}</button>
@@ -674,6 +901,11 @@ function openGame(game, result, back) {
       : `Você zerou em ${fmtH(h)} h, ${fmtH(Math.abs(diff))} h ${diff > 0 ? "acima" : "abaixo"} da média da história principal.`;
   };
   compare();
+  if (!pop) fetchTimes(draft.title).then(t => {
+    const tp = body.querySelector("#times-panel");
+    if (!t || !tp || !tp.isConnected) return;
+    pop = t; tp.innerHTML = timesPanelHTML(t); compare();
+  });
 
   const seg = (sel, key, after) => body.querySelector(sel).addEventListener("click", e => {
     const b = e.target.closest("[data-v]");
@@ -944,7 +1176,7 @@ async function openAchSheet(cfg, back) {
     <div class="ach-head">
       <h2 class="hero-title">${esc(cfg.title)}</h2>
       <div id="ach-body"><ul class="ach-list">${skeletonRows(6)}</ul></div>
-    </div>`, back);
+    </div>`, back, () => openAchSheet(cfg, back));
 
   let data;
   try { data = await cfg.load(); }
@@ -2139,11 +2371,7 @@ function openGameAchievements(game, back) {
 }
 
 /* ---------- Tela "Contas de jogos" ---------- */
-const PLATFORM_LOGO = {
-  steam: '<svg viewBox="0 0 24 24"><circle cx="15.5" cy="8.5" r="3.2"/><circle cx="8" cy="15.5" r="2.2"/><path d="M3 12.5l4.2 1.8M10 16.3l3.6-5"/></svg>',
-  xbox: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M6.5 6.2C9 7.5 11 9.8 12 11.3c1-1.5 3-3.8 5.5-5.1M5.6 18c1.7-3 4-5.6 6.4-7 2.4 1.4 4.7 4 6.4 7"/></svg>',
-  psn: '<svg viewBox="0 0 24 24"><path d="M9.5 4v15l3 1V7.2c0-.8.5-1.2 1-1 .7.2.8.9.8 1.6v5c2 .9 3.6 0 3.6-2.6 0-2.7-.9-3.9-3.7-4.8C12.7 4.7 11 4.3 9.5 4z"/><path d="M14 16.2l4.5-1.6c.6-.2.6-.6 0-.8-.6-.2-1.6-.2-2.3.1L14 14.6M9 15.5l-3.7 1.3c-.6.2-.7.6 0 .8.7.3 1.8.3 2.6 0L9 17.3"/></svg>'
-};
+const PLATFORM_LOGO = { steam: "<b>ST</b>", xbox: "<b>XB</b>", psn: "<b>PS</b>" };
 function accountsRowsHTML() {
   return ["steam", "xbox", "psn"].map(src => {
     const a = accounts[src];
@@ -2447,98 +2675,156 @@ function openTimeline() {
 }
 
 /* =========================================================
-   Roleta do backlog
+   Roleta: sorteia da sua lista ou de qualquer jogo (HowLongToBeat)
    ========================================================= */
-const ROULETTE_TIMES = [["any", "Qualquer"], ["s", "Até 10 h"], ["m", "10 a 30 h"], ["l", "30 a 60 h"], ["xl", "Mais de 60 h"]];
-let rouletteOpts = { time: "any", platform: "", dropped: false };
-const estHours = g => { const p = findPopular(g.title, g.wiki); return p ? p.main : null; };
+const ROULETTE_TIMES = [["any", "Qualquer", null, null], ["s", "Até 10 h", null, 10], ["m", "10 a 30 h", 10, 30], ["l", "30 a 60 h", 30, 60], ["xl", "Mais de 60 h", 60, null]];
+let rouletteOpts = { source: "mine", time: "any", platform: "", dropped: false };
+const estHours = g => { const t = knownTimes(g.title, g.wiki); return t ? t.main : null; };
+const itemCovers = x => x.covers ? x.covers : gameCovers(x);
+const inRange = (h, key) => {
+  const r = ROULETTE_TIMES.find(x => x[0] === key);
+  if (!r || key === "any") return true;
+  if (h == null) return false;
+  return (r[2] == null || h > r[2]) && (r[3] == null || h <= r[3]);
+};
 function roulettePool() {
   const o = rouletteOpts;
-  return games.filter(g => {
-    if (!(g.status === "backlog" || (o.dropped && g.status === "dropped"))) return false;
-    if (o.platform && g.platform !== o.platform) return false;
-    if (o.time === "any") return true;
-    const h = estHours(g);
-    if (h == null) return false;
-    return o.time === "s" ? h <= 10 : o.time === "m" ? h > 10 && h <= 30 : o.time === "l" ? h > 30 && h <= 60 : h > 60;
-  });
+  return games.filter(g => (g.status === "backlog" || (o.dropped && g.status === "dropped"))
+    && (!o.platform || g.platform === o.platform) && inRange(estHours(g), o.time));
 }
+/* Catálogo: guarda o total de páginas por filtro para sortear uma página qualquer */
+const catalogMeta = {};
+const catKey = () => `${rouletteOpts.time}|${rouletteOpts.platform}`;
+async function catalogPool() {
+  const r = ROULETTE_TIMES.find(x => x[0] === rouletteOpts.time);
+  const q = { min: r[2], max: r[3], platform: HLTB_PLAT[rouletteOpts.platform] || "" };
+  let meta = catalogMeta[catKey()];
+  if (!meta) { const first = await hltbSearch({ ...q, page: 1 }); meta = catalogMeta[catKey()] = { total: first.total, pages: first.pages, first: first.items }; }
+  // Fica entre os ~1000 mais populares para sair jogo conhecido
+  const page = 1 + Math.floor(Math.random() * Math.max(1, Math.min(meta.pages, 50)));
+  const res = page === 1 ? { items: meta.first } : await hltbSearch({ ...q, page });
+  const owned = new Set(games.map(g => norm(g.title)));
+  return res.items.filter(x => x.sp && !owned.has(norm(x.title)));
+}
+let prefetching = false;
+async function prefetchTimes(list) {
+  if (prefetching) return;
+  prefetching = true;
+  const todo = list.filter(g => estHours(g) == null && !triedTimes.has(norm(g.title))).slice(0, 12);
+  for (let i = 0; i < todo.length; i += 3) await Promise.all(todo.slice(i, i + 3).map(g => fetchTimes(g.title)));
+  prefetching = false;
+  return todo.length;
+}
+let rouletteSpinning = false;
 function openRoulette(result) {
-  const pool = roulettePool();
-  const unknown = rouletteOpts.time !== "any" ? games.filter(g => g.status === "backlog" && estHours(g) == null).length : 0;
-  const plats = [...new Set(games.map(g => g.platform).filter(Boolean))];
+  const any = rouletteOpts.source === "any";
+  const pool = any ? [] : roulettePool();
+  const unknownList = !any && rouletteOpts.time !== "any" ? games.filter(g => g.status === "backlog" && estHours(g) == null) : [];
+  const plats = any ? PLATFORMS : [...new Set(games.map(g => g.platform).filter(Boolean))];
+  const meta = catalogMeta[catKey()];
+  const owned = result && games.find(g => g.id === result.id || norm(g.title) === norm(result.title));
   showSheet(`
     <div class="sheet-top"><button class="icon-btn" data-back aria-label="Fechar">${ICON.close}</button></div>
-    <h2 class="hero-title" style="margin-top:18px">Roleta do backlog</h2>
-    <p class="hero-sub">Não sabe o que jogar? Diga quanto tempo tem e deixa que o app escolhe da sua lista.</p>
+    <h2 class="hero-title" style="margin-top:18px">Roleta</h2>
+    <div class="segmented" style="margin:14px 0 0" id="r-src">
+      <button class="${!any ? "is-on" : ""}" data-v="mine">Da minha lista</button>
+      <button class="${any ? "is-on" : ""}" data-v="any">Qualquer jogo</button>
+    </div>
+    <p class="hero-sub">${any ? "Sorteia entre milhares de jogos single player do HowLongToBeat, dentro do tempo que você tem." : "Sorteia um jogo da sua lista \"Quero jogar\" que caiba no tempo que você tem."}</p>
 
     <div class="slot ${result ? "has-result" : ""}" id="slot">
-      ${result ? coverHTML(gameCovers(result), result.title) : `<div class="slot-empty">${DICE}<span>${pool.length} ${pool.length === 1 ? "jogo entra" : "jogos entram"} no sorteio</span></div>`}
+      ${result ? coverHTML(itemCovers(result), result.title) : `<div class="slot-empty">${DICE}<span id="slot-count">${any
+        ? (meta ? `${fmtN(meta.total)} jogos no sorteio` : "Contando os jogos…")
+        : `${pool.length} ${pool.length === 1 ? "jogo entra" : "jogos entram"} no sorteio`}</span></div>`}
     </div>
     <div class="slot-title" id="slot-title">${result ? esc(result.title) : ""}</div>
     <div class="slot-sub" id="slot-sub">${result ? rouletteSub(result) : ""}</div>
 
     <div class="actions" id="r-actions">
       ${result ? `
-        <button class="btn btn-primary" id="r-start">Começar a jogar</button>
-        <div class="two-btns"><button class="btn btn-ghost" id="r-again">${DICE}Sortear de novo</button><button class="btn btn-ghost" id="r-open">Ver jogo</button></div>`
-      : `<button class="btn btn-primary" id="r-spin" ${pool.length ? "" : "disabled"}>${DICE}Sortear</button>`}
+        <button class="btn btn-primary" id="r-start">${result.src === "hltb" ? (owned ? "Abrir na minha estante" : "Adicionar à estante") : "Começar a jogar"}</button>
+        <div class="two-btns"><button class="btn btn-ghost" id="r-again">${DICE}Outro</button><button class="btn btn-ghost" id="r-open">${result.src === "hltb" ? "Ver tempos" : "Ver jogo"}</button></div>`
+      : `<button class="btn btn-primary" id="r-spin" ${!any && !pool.length ? "disabled" : ""}>${DICE}Sortear</button>`}
     </div>
 
     <div class="field">
       <span class="field-label">Quanto tempo você tem</span>
       <div class="seg" id="r-time">${ROULETTE_TIMES.map(([v, l]) => `<button class="chip ${rouletteOpts.time === v ? "is-on" : ""}" data-v="${v}">${l}</button>`).join("")}</div>
-      ${unknown ? `<p class="panel-note">${unknown} ${unknown === 1 ? "jogo sem tempo médio conhecido fica" : "jogos sem tempo médio conhecido ficam"} de fora quando você filtra por tempo.</p>` : ""}
+      ${unknownList.length ? `<p class="panel-note" id="r-unknown">${unknownList.length} ${unknownList.length === 1 ? "jogo da lista ainda não tem" : "jogos da lista ainda não têm"} tempo médio. Buscando no HowLongToBeat…</p>` : ""}
     </div>
     ${plats.length > 1 ? `<div class="field">
       <span class="field-label">Plataforma</span>
       <div class="seg" id="r-plat"><button class="chip ${!rouletteOpts.platform ? "is-on" : ""}" data-v="">Todas</button>${plats.map(p =>
         `<button class="chip ${rouletteOpts.platform === p ? "is-on" : ""}" data-v="${p}">${platLabel(p)}</button>`).join("")}</div>
     </div>` : ""}
-    <div class="field">
+    ${!any ? `<div class="field">
       <button class="chip ${rouletteOpts.dropped ? "is-on" : ""}" id="r-dropped">Incluir jogos abandonados</button>
-    </div>
-    ${!pool.length ? `<p class="panel-note">Nenhum jogo da lista "Quero jogar" bate com esses filtros. Mude o tempo ou a plataforma.</p>` : ""}`);
+    </div>` : ""}
+    ${!any && !pool.length ? `<p class="panel-note">Nenhum jogo da sua lista bate com esses filtros. Mude o tempo, a plataforma, ou sorteie de "Qualquer jogo".</p>` : ""}`);
 
   const refresh = () => { const y = body.scrollTop; openRoulette(); body.scrollTop = y; };
-  const pick = (sel, key) => { const el = body.querySelector(sel); if (el) el.onclick = e => { const b = e.target.closest("[data-v]"); if (b) { rouletteOpts[key] = b.dataset.v; refresh(); } }; };
-  pick("#r-time", "time"); pick("#r-plat", "platform");
-  body.querySelector("#r-dropped").onclick = () => { rouletteOpts.dropped = !rouletteOpts.dropped; refresh(); };
+  const pick = (sel, key) => { const el = body.querySelector(sel); if (el) el.onclick = e => { const b = e.target.closest("[data-v]"); if (b && !rouletteSpinning) { rouletteOpts[key] = b.dataset.v; refresh(); } }; };
+  pick("#r-src", "source"); pick("#r-time", "time"); pick("#r-plat", "platform");
+  const dr = body.querySelector("#r-dropped");
+  if (dr) dr.onclick = () => { rouletteOpts.dropped = !rouletteOpts.dropped; refresh(); };
   const spinBtn = body.querySelector("#r-spin");
-  if (spinBtn) spinBtn.onclick = () => spin(pool);
+  if (spinBtn) spinBtn.onclick = () => doSpin();
+  if (any && !meta && !result) catalogPool().then(() => { const c = body.querySelector("#slot-count"); if (c && catalogMeta[catKey()]) c.textContent = `${fmtN(catalogMeta[catKey()].total)} jogos no sorteio`; }).catch(() => {
+    const c = body.querySelector("#slot-count"); if (c) c.textContent = "Sem conexão com o HowLongToBeat agora";
+  });
+  if (unknownList.length && !result) prefetchTimes(unknownList).then(n => {
+    if (!n || rouletteSpinning || !body.querySelector("#r-unknown")) return;
+    refresh();
+  });
   if (result) {
-    body.querySelector("#r-again").onclick = () => spin(roulettePool(), result);
-    body.querySelector("#r-open").onclick = () => openGame(result, null, () => openRoulette(result));
-    body.querySelector("#r-start").onclick = () => {
-      if (result.status !== "playing") { logEvent(result, "status", { to: "playing" }); result.status = "playing"; }
-      result.updatedAt = Date.now(); saveGames(); renderLibrary();
-      toast(`Bom jogo! ${result.title} foi para Jogando agora`);
-      closeSheet();
-    };
+    body.querySelector("#r-again").onclick = () => doSpin(result);
+    const back = () => openRoulette(result);
+    if (result.src === "hltb") {
+      body.querySelector("#r-open").onclick = () => openCatalog(result, back);
+      body.querySelector("#r-start").onclick = () => owned ? openGame(owned, null, back)
+        : openGame(null, { title: result.title, year: result.year, covers: result.covers }, back);
+    } else {
+      body.querySelector("#r-open").onclick = () => openGame(result, null, back);
+      body.querySelector("#r-start").onclick = () => {
+        if (result.status !== "playing") { logEvent(result, "status", { to: "playing" }); result.status = "playing"; }
+        result.updatedAt = Date.now(); saveGames(); renderLibrary();
+        toast(`Bom jogo! ${result.title} foi para Jogando agora`);
+        closeSheet();
+      };
+    }
   }
 }
 function rouletteSub(g) {
-  const h = estHours(g);
-  return [platLabel(g.platform), h != null ? `cerca de ${fmtH(h)} h de história` : "tempo médio desconhecido"].filter(Boolean).map(esc).join(", ");
+  const h = g.src === "hltb" ? g.main : estHours(g);
+  const where = g.src === "hltb" ? (g.platforms || []).slice(0, 3).join(", ") : platLabel(g.platform);
+  return [where, h != null ? `cerca de ${fmtH(h)} h de história` : "tempo médio desconhecido"].filter(Boolean).map(esc).join(", ");
 }
-function spin(pool, avoid) {
-  if (!pool.length) return;
-  const options = pool.length > 1 && avoid ? pool.filter(g => g.id !== avoid.id) : pool;
-  const chosen = options[Math.floor(Math.random() * options.length)];
-  const slot = body.querySelector("#slot"), title = body.querySelector("#slot-title"), sub = body.querySelector("#slot-sub");
+async function doSpin(avoid) {
+  if (rouletteSpinning) return;
+  const any = rouletteOpts.source === "any";
   const acts = body.querySelector("#r-actions");
   if (acts) acts.querySelectorAll("button").forEach(b => b.disabled = true);
-  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (reduce || pool.length === 1) return openRoulette(chosen);
+  let pool;
+  if (any) {
+    const t = body.querySelector("#slot-count"); if (t) t.textContent = "Escolhendo…";
+    try { pool = await catalogPool(); } catch (_) { toast("Sem conexão com o HowLongToBeat agora. Tente de novo."); openRoulette(); return; }
+  } else pool = roulettePool();
+  if (!pool.length) { toast("Nada para sortear com esses filtros"); openRoulette(); return; }
+  const options = pool.length > 1 && avoid ? pool.filter(g => norm(g.title) !== norm(avoid.title)) : pool;
+  const chosen = options[Math.floor(Math.random() * options.length)];
+  const slot = body.querySelector("#slot"), title = body.querySelector("#slot-title"), sub = body.querySelector("#slot-sub");
+  if (!slot || matchMedia("(prefers-reduced-motion: reduce)").matches || pool.length === 1) return openRoulette(chosen);
+  rouletteSpinning = true;
   slot.classList.add("is-spinning");
   const steps = 22;
   let i = 0;
   const tick = () => {
+    if (!slot.isConnected) { rouletteSpinning = false; return; }
     const g = i === steps ? chosen : pool[Math.floor(Math.random() * pool.length)];
-    slot.innerHTML = coverHTML(gameCovers(g), g.title);
+    slot.innerHTML = coverHTML(itemCovers(g), g.title);
     title.textContent = g.title;
     sub.textContent = "";
-    if (i === steps) { slot.classList.remove("is-spinning"); setTimeout(() => openRoulette(chosen), 380); return; }
+    if (i === steps) { slot.classList.remove("is-spinning"); setTimeout(() => { rouletteSpinning = false; openRoulette(chosen); }, 380); return; }
     i++;
     setTimeout(tick, 45 + Math.pow(i / steps, 3) * 320);
   };
@@ -2941,7 +3227,11 @@ function postHTML(r, prof, likes, opts = {}) {
 function wirePosts(root, refresh) {
   root.querySelectorAll("[data-user]").forEach(b => b.onclick = () => openNetProfile(b.dataset.user, refresh));
   root.querySelectorAll("[data-game]").forEach(b => b.onclick = () => openNetGame(b.dataset.game, b.dataset.title, b.dataset.cover, refresh));
-  root.querySelectorAll("[data-spoiler]").forEach(b => b.onclick = () => { b.classList.remove("is-spoiler"); b.removeAttribute("data-spoiler"); });
+  root.querySelectorAll("[data-spoiler]").forEach(b => b.onclick = () => {
+    b.classList.remove("is-spoiler"); b.removeAttribute("data-spoiler");
+    const tag = b.querySelector(".spoiler-tag"); if (tag) tag.remove();
+    b.onclick = null;
+  });
   root.querySelectorAll("[data-like]").forEach(b => b.onclick = async () => {
     const on = !b.classList.contains("is-on");
     const span = b.querySelector("span");
@@ -3138,7 +3428,7 @@ function renderJoin(box) {
 /* --- Perfil de outra pessoa --- */
 async function openNetProfile(uid, back) {
   showSheet(`<div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button></div>
-    <div id="np">${skeletonRows(4)}</div>`, back);
+    <div id="np">${skeletonRows(4)}</div>`, back, () => openNetProfile(uid, back));
   const box = body.querySelector("#np");
   let p, revs, likes, fol;
   try {
@@ -3202,7 +3492,7 @@ async function openNetGame(gameKey, title, cover, back) {
   showSheet(`<div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button></div>
     <div class="hero">${coverHTML([cover].filter(Boolean), title)}<div><h2 class="hero-title">${esc(title)}</h2><div class="hero-sub" id="ng-sum">Carregando avaliações…</div></div></div>
     <div class="actions" id="ng-act"></div>
-    <div class="net-list" id="ng-list">${skeletonRows(3)}</div>`, back);
+    <div class="net-list" id="ng-list">${skeletonRows(3)}</div>`, back, () => openNetGame(gameKey, title, cover, back));
   let sum, likes;
   try { [sum, likes] = await Promise.all([netGameSummary(title), loadLikes()]); }
   catch (_) { const el = body.querySelector("#ng-list"); if (el) el.innerHTML = `<p class="hero-sub">Não deu para carregar agora.</p>`; return; }
@@ -3263,6 +3553,65 @@ function wireSocialSettings() {
     renderSettings();
   };
 }
+
+/* =========================================================
+   Puxar para atualizar
+   ========================================================= */
+async function refreshCurrent() {
+  if (!sheet.hidden) { if (sheetReload) await sheetReload(); return; }
+  if (currentView === "library") {
+    if (cloudReady && auth) await fullSync();
+    ensureCovers();
+    renderLibrary();
+  } else if (currentView === "search") await runSearch($("#search-input").value);
+  else if (currentView === "explore") {
+    if (exploreSeg === "trending") await renderTrending(true);
+    else { hltbToken = null; await renderHltb(true); }
+  } else if (currentView === "net") { profCache.clear(); await renderNet(); }
+  else if (currentView === "ach") { renderTracked(); if ($("#ach-input").value.trim()) await runAchSearch($("#ach-input").value); }
+  else if (currentView === "settings") renderSettings();
+}
+(function pullToRefresh() {
+  const ind = document.createElement("div");
+  ind.className = "ptr";
+  ind.setAttribute("aria-hidden", "true");
+  ind.innerHTML = `<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4h-4"/></svg>`;
+  document.body.appendChild(ind);
+  let startY = null, d = 0, busy = false;
+  const scroller = () => (!sheet.hidden ? body : document.scrollingElement || document.documentElement);
+  const canPull = () => sheet.hidden || !!sheetReload;
+  const set = v => {
+    ind.style.transform = `translate(-50%, ${v - 50}px) rotate(${v * 4}deg)`;
+    ind.style.opacity = Math.min(1, v / 50);
+    ind.classList.toggle("is-ready", v >= 70);
+  };
+  document.addEventListener("touchstart", e => {
+    if (busy || e.touches.length > 1 || !canPull() || scroller().scrollTop > 2) { startY = null; return; }
+    if (e.target.closest("textarea, input, .rail, .chips")) { startY = null; return; }
+    startY = e.touches[0].clientY; d = 0;
+  }, { passive: true });
+  document.addEventListener("touchmove", e => {
+    if (startY == null) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0) { d = 0; set(0); return; }
+    d = Math.min(110, dy * 0.5);
+    set(d);
+  }, { passive: true });
+  document.addEventListener("touchend", async () => {
+    if (startY == null) return;
+    startY = null;
+    if (d < 70) { ind.classList.add("is-back"); set(0); setTimeout(() => ind.classList.remove("is-back"), 200); return; }
+    busy = true;
+    ind.classList.add("is-loading");
+    set(70);
+    try { await refreshCurrent(); } catch (_) {}
+    ind.classList.remove("is-loading");
+    ind.classList.add("is-back"); set(0);
+    setTimeout(() => ind.classList.remove("is-back"), 200);
+    busy = false;
+  });
+  window.__refresh = refreshCurrent;
+})();
 
 /* Botão voltar do Android */
 window.__onBack = () => {
