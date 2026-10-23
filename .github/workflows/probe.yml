@@ -1,0 +1,56 @@
+name: Probe
+on:
+  push:
+    branches: [ probe4 ]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          mkdir -p probe
+          python3 - <<'PY' > probe/result.txt 2>&1
+          import json, urllib.request, urllib.error, time
+          KEY = "AIzaSyBt6nEnC3Bxgyxh1C5YzmitTJxxoD9zqjg"
+          DB = "https://backlog-jogos-c12e9-default-rtdb.firebaseio.com"
+          def call(method, url, body=None):
+              data = None if body is None else json.dumps(body).encode()
+              req = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r: return r.status, r.read().decode()[:300]
+              except urllib.error.HTTPError as e: return e.code, e.read().decode()[:300]
+          mail = f"probe{int(time.time())}@backlog-teste.dev"
+          st, b = call("POST", f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={KEY}", {"email": mail, "password": "teste123456", "returnSecureToken": True})
+          print("signUp", st, b[:160])
+          if st != 200: raise SystemExit
+          tok = json.loads(b)["idToken"] if b.startswith("{") and "idToken" in b else None
+          if not tok:
+              st, b = call("POST", f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={KEY}", {"email": mail+"x", "password": "teste123456", "returnSecureToken": True})
+          full = json.loads(urllib.request.urlopen(urllib.request.Request(f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={KEY}", data=json.dumps({"email": mail, "password": "teste123456", "returnSecureToken": True}).encode(), headers={"Content-Type": "application/json"})).read())
+          tok, uid = full["idToken"], full["localId"]
+          A = f"auth={tok}"
+          print("noauth read", *call("GET", f"{DB}/reviews.json"))
+          print("handle put", *call("PUT", f"{DB}/handles/zzprobe{uid[:6].lower()}.json?{A}", uid))
+          print("handle steal", *call("PUT", f"{DB}/handles/zzprobe{uid[:6].lower()}.json?{A}", "outro"))
+          print("profile put", *call("PUT", f"{DB}/profiles/{uid}.json?{A}", {"handle": "zzprobe", "name": "teste"}))
+          print("profile other", *call("PUT", f"{DB}/profiles/outro.json?{A}", {"handle": "x"}))
+          print("review put", *call("PUT", f"{DB}/reviews/{uid}_teste.json?{A}", {"uid": uid, "gameKey": "teste", "game": "Teste", "at": 1}))
+          print("review fake", *call("PUT", f"{DB}/reviews/outro_teste.json?{A}", {"uid": "outro", "gameKey": "teste", "at": 1}))
+          print("query at", *call("GET", f'{DB}/reviews.json?{A}&orderBy=%22at%22&limitToLast=5'))
+          print("query uid", *call("GET", f'{DB}/reviews.json?{A}&orderBy=%22uid%22&equalTo=%22{uid}%22'))
+          print("query gameKey", *call("GET", f'{DB}/reviews.json?{A}&orderBy=%22gameKey%22&equalTo=%22teste%22'))
+          print("query handle", *call("GET", f'{DB}/profiles.json?{A}&orderBy=%22handle%22&limitToFirst=3'))
+          print("like", *call("PUT", f"{DB}/likes/{uid}_teste/{uid}.json?{A}", True))
+          print("report", *call("POST", f"{DB}/reports.json?{A}", {"by": uid, "reason": "teste"}))
+          print("report read", *call("GET", f"{DB}/reports.json?{A}"))
+          print("users own", *call("PUT", f"{DB}/users/{uid}.json?{A}", {"v": 1}))
+          # limpeza
+          for p in [f"likes/{uid}_teste", f"reviews/{uid}_teste", f"profiles/{uid}", f"handles/zzprobe{uid[:6].lower()}", f"users/{uid}"]:
+              print("del", p.split("/")[0], call("DELETE", f"{DB}/{p}.json?{A}")[0])
+          print("account delete", call("POST", f"https://identitytoolkit.googleapis.com/v1/accounts:delete?key={KEY}", {"idToken": tok})[0])
+          PY
+          cat probe/result.txt
+          git config user.name probe; git config user.email probe@example.com
+          git add probe && git commit -m probe && git push
