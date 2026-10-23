@@ -142,10 +142,11 @@ function popCovers(p) {
 
 /* opts.ck = chave de cache (salva a imagem quando carregar)
    opts.wiki = título da Wikipédia para usar como última alternativa */
-const PLAT_LOGO = { PlayStation: "img/playstation.png", Xbox: "img/xbox.png", Switch: "img/nintendo.png", "Switch 2": "img/nintendo.png" };
+const PLAT_LOGO = { PlayStation: "img/playstation.png", Xbox: "img/xbox.png" };
+const PLAT_TEXT = { PC: "PC", Switch: "SWITCH", "Switch 2": "SWITCH 2" };
 function platBadge(p) {
-  if (!p || !(p in PLAT_LOGO) && p !== "PC") return "";
-  const inner = PLAT_LOGO[p] ? `<img src="${PLAT_LOGO[p]}" alt="">${p === "Switch 2" ? "<b>2</b>" : ""}` : "<b>PC</b>";
+  if (!p || !(PLAT_LOGO[p] || PLAT_TEXT[p])) return "";
+  const inner = PLAT_LOGO[p] ? `<img src="${PLAT_LOGO[p]}" alt="">` : `<b>${PLAT_TEXT[p]}</b>`;
   return `<span class="plat-badge plat-${p === "Switch 2" ? "switch2" : p.toLowerCase()}" aria-label="${esc(platLabel(p))}">${inner}</span>`;
 }
 function coverHTML(urls, title, opts = {}) {
