@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Três caixas de jogo na estante; a última inclinada -->
+<!-- Controle com um check no lugar do direcional -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#ECEEF3" android:pathData="M34,36h9a2,2 0,0 1,2 2v34a2,2 0,0 1,-2 2h-9a2,2 0,0 1,-2 -2v-34a2,2 0,0 1,2 -2z"/>
-    <path android:fillColor="#93ABFF" android:pathData="M50,36h9a2,2 0,0 1,2 2v34a2,2 0,0 1,-2 2h-9a2,2 0,0 1,-2 -2v-34a2,2 0,0 1,2 -2z"/>
-    <path android:fillColor="#FFC65C" android:pathData="M66.3,38.6l8.7,-2.3a2,2 0,0 1,2.45 1.42l8.8,32.8a2,2 0,0 1,-1.42 2.45l-8.7,2.3a2,2 0,0 1,-2.45 -1.42l-8.8,-32.8a2,2 0,0 1,1.42 -2.45z"/>
-    <path android:fillColor="#2E3445" android:pathData="M28,76h52v3h-52z"/>
+    <group android:scaleX="0.9" android:scaleY="0.9" android:pivotX="54" android:pivotY="55">
+        <path android:fillColor="#FFD21F"
+            android:pathData="M30,44c0,-6.6 5,-11 12,-11h24c7,0 12,4.4 12,11l4.6,21.5c1.4,6.6 -3.4,12.5 -9.6,11.5c-3.6,-0.6 -6.4,-3.6 -8.6,-7.6L62,66H46l-2.4,3.4c-2.2,4 -5,7 -8.6,7.6c-6.2,1 -11,-4.9 -9.6,-11.5z"/>
+        <path android:strokeColor="#0B0B0C" android:strokeWidth="5"
+            android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M37,49.5l5,5l9,-10"/>
+        <path android:fillColor="#F03A2E" android:pathData="M66,46.5m-3.6,0a3.6,3.6 0,1 1,7.2 0a3.6,3.6 0,1 1,-7.2 0"/>
+        <path android:fillColor="#0B0B0C" android:pathData="M72.5,53m-3.6,0a3.6,3.6 0,1 1,7.2 0a3.6,3.6 0,1 1,-7.2 0"/>
+    </group>
 </vector>

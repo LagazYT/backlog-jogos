@@ -2959,11 +2959,18 @@ function drawBackdrop(ctx, img, W, H) {
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
 }
 function drawBrand(ctx, x, y, c) {
-  ctx.fillStyle = "#F6F4EE"; rr(ctx, x, y - 34, 14, 40, 3); ctx.fill();
-  ctx.fillStyle = c.a; rr(ctx, x + 20, y - 40, 14, 46, 3); ctx.fill();
-  ctx.save(); ctx.translate(x + 46, y + 6); ctx.rotate(0.16); ctx.fillStyle = c.a2; rr(ctx, 0, -40, 14, 40, 3); ctx.fill(); ctx.restore();
+  // O mesmo controle do ícone do app
+  ctx.save();
+  ctx.translate(x - 22, y - 50); ctx.scale(0.95, 0.95);
+  ctx.fillStyle = c.a;
+  ctx.fill(new Path2D("M30 44c0-6.6 5-11 12-11h24c7 0 12 4.4 12 11l4.6 21.5c1.4 6.6-3.4 12.5-9.6 11.5-3.6-.6-6.4-3.6-8.6-7.6L62 66H46l-2.4 3.4c-2.2 4-5 7-8.6 7.6-6.2 1-11-4.9-9.6-11.5z"));
+  ctx.strokeStyle = "#0B0B0C"; ctx.lineWidth = 5; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.stroke(new Path2D("M37 49.5l5 5 9-10"));
+  ctx.fillStyle = c.a2; ctx.beginPath(); ctx.arc(66, 46.5, 3.6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#0B0B0C"; ctx.beginPath(); ctx.arc(72.5, 53, 3.6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
   setFont(ctx, 900, 44, "condensed"); ctx.fillStyle = "#F6F4EE"; ctx.textAlign = "left";
-  ctx.fillText("Backlog", x + 78, y);
+  ctx.fillText("Backlog", x + 66, y);
 }
 async function drawFooter(ctx, W, H, c) {
   const av = await avatarImage();
