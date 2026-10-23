@@ -1,0 +1,49 @@
+name: Probe
+on:
+  push:
+    branches: [ probe5 ]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          mkdir -p probe
+          python3 - <<'PY' > probe/result.txt 2>&1 || true
+          import json, re, urllib.request, urllib.error
+          UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36"
+          def get(url, data=None, headers=None):
+              h = {"User-Agent": UA, **(headers or {})}
+              req = urllib.request.Request(url, data=data, headers=h, method="POST" if data else "GET")
+              try:
+                  with urllib.request.urlopen(req, timeout=25) as r: return r.status, r.read().decode("utf-8", "replace")
+              except urllib.error.HTTPError as e: return e.code, e.read().decode("utf-8", "replace")
+              except Exception as e: return 0, str(e)
+          st, b = get("https://api.steampowered.com/ISteamChartsService/GetMostPlayedGames/v1/")
+          print("mostplayed", st, b[:400])
+          for f in ["topsellers", "globaltopsellers", "mostplayed", "popularnew"]:
+              st, b = get(f"https://store.steampowered.com/search/results/?query=&start=0&count=10&category2=2&filter={f}&infinite=1&cc=BR&l=portuguese")
+              try:
+                  j = json.loads(b); names = re.findall(r'<span class="title">([^<]+)</span>', j.get("results_html", "")); ids = re.findall(r'data-ds-appid="(\d+)"', j.get("results_html", ""))
+                  print("search", f, st, j.get("total_count"), names[:6], ids[:6])
+              except Exception as e: print("search", f, st, b[:200])
+          st, b = get("https://store.steampowered.com/api/appdetails?appids=1245620&filters=categories,genres,basic&l=portuguese")
+          print("appdetails", st, b[:300])
+          # HowLongToBeat
+          st, home = get("https://howlongtobeat.com/")
+          print("hltb home", st, len(home))
+          scripts = re.findall(r'src="(/_next/static/[^"]+\.js)"', home)
+          print("scripts", len(scripts), [s for s in scripts if "_app" in s or "pages" in s][:6])
+          found = []
+          for s in scripts:
+              st, js = get("https://howlongtobeat.com" + s)
+              for m in re.finditer(r'.{0,160}/api/[a-z]+.{0,260}', js):
+                  if "fetch" in m.group(0) or "concat" in m.group(0) or "POST" in m.group(0):
+                      found.append((s, m.group(0)))
+          for s, f in found[:8]: print("API", s, "::", f[:420]); print()
+          PY
+          cat probe/result.txt
+          git config user.name probe; git config user.email probe@example.com
+          git add probe && git commit -m probe && git push
