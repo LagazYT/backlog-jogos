@@ -1,0 +1,45 @@
+name: Probe
+on:
+  push:
+    branches: [ probe6 ]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          mkdir -p probe
+          python3 - <<'PY' > probe/result.txt 2>&1 || true
+          import json, re, urllib.request, urllib.error, urllib.parse
+          UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36"
+          def get(url):
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20) as r: return r.status, r.headers.get("Content-Type"), r.read()
+              except urllib.error.HTTPError as e: return e.code, "", b""
+              except Exception as e: return 0, str(e), b""
+          ids = [4435490, 4080220, 1245620]
+          for aid in ids:
+              for f in ["library_600x900.jpg", "library_600x900_2x.jpg", "header.jpg"]:
+                  st, ct, b = get(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{aid}/{f}")
+                  print("plain", aid, f, st, ct, len(b))
+          inp = {"ids": [{"appid": a} for a in ids], "context": {"language": "brazilian", "country_code": "BR"}, "data_request": {"include_assets": True}}
+          st, ct, b = get("https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=" + urllib.parse.quote(json.dumps(inp)))
+          print("getitems", st, ct, b[:1500].decode("utf-8", "replace"))
+          try:
+              j = json.loads(b)
+              for it in j["response"]["store_items"]:
+                  a = it.get("assets", {}); fmt = a.get("asset_url_format")
+                  print("ASSETS", it.get("appid"), fmt, {k: v for k, v in a.items() if k != "asset_url_format"})
+                  for key in ["library_capsule", "library_capsule_2x", "header", "main_capsule"]:
+                      if a.get(key):
+                          u = "https://shared.akamai.steamstatic.com/store_item_assets/" + fmt.replace("${FILENAME}", a[key])
+                          st2, ct2, b2 = get(u); print("  ", key, st2, ct2, len(b2), u)
+          except Exception as e: print("parse err", e)
+          st, ct, b = get("https://store.steampowered.com/api/appdetails?appids=4435490&filters=basic")
+          print("appdetails", st, re.findall(r'"header_image":"([^"]+)"', b.decode("utf-8", "replace"))[:1], re.findall(r'"capsule_image(?:v5)?":"([^"]+)"', b.decode())[:2])
+          PY
+          cat probe/result.txt
+          git config user.name probe; git config user.email probe@example.com
+          git add probe && git commit -m probe && git push
