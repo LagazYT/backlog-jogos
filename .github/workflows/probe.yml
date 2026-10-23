@@ -39,13 +39,27 @@ jobs:
                       "filter": "", "sort": 0, "randomizer": 0}, "useCache": True}
               return get("https://howlongtobeat.com/api/search/site", data=json.dumps(payload).encode(),
                   headers={"Content-Type": "application/json", "x-auth-token": tok or "", "Referer": "https://howlongtobeat.com/", "Origin": "https://howlongtobeat.com"})
-          for args in [(["hollow", "knight"],), ([],), ([], 3), ([], 1, 10, 30)]:
-              st, b = search(*args)
+          def search2(platform):
+              payload = {"searchType": "games", "searchTerms": [], "searchPage": 1, "size": 20,
+                  "searchOptions": {"games": {"userId": 0, "platform": platform, "sortCategory": "popular", "rangeCategory": "main",
+                      "rangeTime": {"min": None, "max": None}, "gameplay": {"perspective": {"mode": "include", "values": []}, "flow": {"mode": "include", "values": []}, "genre": {"mode": "include", "values": []}},
+                      "year": {"mode": "include", "values": []}, "modifier": ""}, "users": {"sortCategory": "postcount"}, "lists": {"sortCategory": "follows"},
+                      "filter": "", "sort": 0, "randomizer": 0}, "useCache": True}
+              return get("https://howlongtobeat.com/api/search/site", data=json.dumps(payload).encode(),
+                  headers={"Content-Type": "application/json", "x-auth-token": tok or "", "Referer": "https://howlongtobeat.com/", "Origin": "https://howlongtobeat.com"})
+          for plat in [{"mode": "include", "values": ["Nintendo Switch 2"]}, {"mode": "include", "values": ["PlayStation 5"]}, "Nintendo Switch 2", {"mode": "include", "values": []}]:
+              st, b = search2(plat)
               try:
-                  j = json.loads(b)
-                  print("SEARCH", args, st, j.get("count"), j.get("pageTotal"), [(d["game_name"], round(d["comp_main"] / 3600, 1), d.get("game_image"), d.get("profile_platform", "")[:40]) for d in j.get("data", [])[:5]])
-                  if j.get("data"): print("KEYS", list(j["data"][0].keys()))
-              except Exception as e: print("SEARCH", args, st, b[:300])
+                  j = json.loads(b); print("PLAT", json.dumps(plat), st, j.get("count"), [(d["game_name"], d["profile_platform"][:60], d["comp_lvl_sp"], d["game_type"]) for d in j["data"][:4]])
+              except Exception: print("PLAT", plat, st, b[:200])
+          for u in ["https://howlongtobeat.com/games/26286_Hollow_Knight.jpg?width=250", "https://howlongtobeat.com/games/26286_Hollow_Knight.jpg"]:
+              req = urllib.request.Request(u, headers={"User-Agent": UA})
+              try:
+                  r = urllib.request.urlopen(req, timeout=20); print("IMG", u, r.status, r.headers.get("Content-Type"), len(r.read()))
+              except Exception as e: print("IMG", u, e)
+          st, b = get("https://store.steampowered.com/search/results/?query=&start=0&count=10&category1=998&category2=2&filter=mostplayed&infinite=1&cc=BR&l=portuguese")
+          j = json.loads(b); print("STEAM", j.get("total_count"), re.findall(r'<span class="title">([^<]+)</span>', j["results_html"])[:10])
+          print("ROW", j["results_html"][:1500])
           PY
           cat probe/result.txt
           git config user.name probe; git config user.email probe@example.com
