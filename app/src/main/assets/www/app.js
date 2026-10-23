@@ -127,7 +127,7 @@ const findPopular = (title, wiki) => {
    cópia no celular em segundo plano.
    ========================================================= */
 const steamBase = id => `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${id}/`;
-const steamCovers = id => [steamBase(id) + "library_600x900_2x.jpg", steamBase(id) + "library_600x900.jpg"];
+const steamCovers = id => [steamBase(id) + "library_600x900.jpg", steamBase(id) + "library_600x900_2x.jpg"];
 const steamHeader = id => steamBase(id) + "header.jpg";
 const popKey = p => "pop_" + norm(p.wiki).replace(/\s/g, "_");
 
@@ -142,14 +142,19 @@ function popCovers(p) {
 
 /* opts.ck = chave de cache (salva a imagem quando carregar)
    opts.wiki = título da Wikipédia para usar como última alternativa */
-const PLAT_TAG = { PC: "PC", PlayStation: "PS", Xbox: "XBOX", Switch: "SWITCH", "Switch 2": "SWITCH 2" };
+const PLAT_LOGO = { PlayStation: "img/playstation.png", Xbox: "img/xbox.png", Switch: "img/nintendo.png", "Switch 2": "img/nintendo.png" };
+function platBadge(p) {
+  if (!p || !(p in PLAT_LOGO) && p !== "PC") return "";
+  const inner = PLAT_LOGO[p] ? `<img src="${PLAT_LOGO[p]}" alt="">${p === "Switch 2" ? "<b>2</b>" : ""}` : "<b>PC</b>";
+  return `<span class="plat-badge plat-${p === "Switch 2" ? "switch2" : p.toLowerCase()}" aria-label="${esc(platLabel(p))}">${inner}</span>`;
+}
 function coverHTML(urls, title, opts = {}) {
   const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);
-  const fb = `<div class="cover-fallback">${esc(title)}</div>${opts.plat && PLAT_TAG[opts.plat] ? `<span class="plat-badge" aria-label="${esc(platLabel(opts.plat))}">${PLAT_TAG[opts.plat]}</span>` : ""}`;
+  const fb = `<div class="cover-fallback">${esc(title)}</div>${opts.plat ? platBadge(opts.plat) : ""}`;
   const wikiAttr = opts.wiki ? ` data-wiki="${esc(opts.wiki)}"` : "";
   if (!list.length) return `<div class="cover"${wikiAttr}>${fb}</div>`;
   const co = /upload\.wikimedia\.org/.test(list[0]) ? ' crossorigin="anonymous"' : "";
-  return `<div class="cover"${wikiAttr}>${fb}<img src="${esc(list[0])}" alt="" decoding="async"${co}
+  return `<div class="cover"${wikiAttr}>${fb}<img src="${esc(list[0])}" alt="" decoding="async" loading="${opts.eager ? "eager" : "lazy"}"${co}
     data-alts="${esc(list.slice(1).join("|"))}" ${opts.ck ? `data-ck="${esc(opts.ck)}"` : ""}
     onload="window.__coverOk(this)" onerror="window.__coverErr(this)"></div>`;
 }
@@ -607,19 +612,23 @@ async function trendingPage() {
   const start = trend.page * 25;
   const d = await getJSON(`https://store.steampowered.com/search/results/?query=&start=${start}&count=25&category1=998&category2=2&filter=mostplayed&infinite=1&cc=BR&l=portuguese`);
   const rows = steamRowsFrom(d.results_html || "").filter(r => !trend.items.some(x => x.steam === r.steam));
-  await Promise.allSettled(rows.map(r => getJSON(`https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=${r.steam}`)
-    .then(j => { r.players = j.response?.player_count ?? 0; trend.players[r.steam] = r.players; })));
-  store.save("backlog.players.v2", trend.players);
-  rows.forEach(r => { r.covers = [...steamCovers(r.steam), steamHeader(r.steam)]; });
+  rows.forEach(r => { r.covers = [...steamCovers(r.steam), steamHeader(r.steam)]; r.players = trend.players[r.steam] || 0; });
+  // Números de jogadores chegam depois, sem segurar a lista
+  Promise.allSettled(rows.map(r => getJSON(`https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=${r.steam}`)
+    .then(j => {
+      r.players = j.response?.player_count ?? 0; trend.players[r.steam] = r.players;
+      const el = document.querySelector(`#trending-list [data-steam="${r.steam}"] .row-sub`);
+      if (el && r.players) el.innerHTML = `<span class="live">${fmtN(r.players)} jogando agora</span>`;
+    }))).then(() => store.save("backlog.players.v2", trend.players));
   trend.page++;
   trend.items.push(...rows);
   return { rows, more: rows.length > 0 && start + 25 < (d.total_count || 0) };
 }
 function trendRowHTML(r, i) {
   const t = knownTimes(r.title);
-  return `<li><button class="row rank-row" data-ti="${i}">
+  return `<li><button class="row rank-row" data-ti="${i}" data-steam="${r.steam}">
     <span class="rank">${i + 1}</span>
-    ${coverHTML(r.covers, r.title, { ck: "st_" + r.steam })}
+    ${coverHTML(r.covers, r.title)}
     <div>
       <div class="row-title">${esc(r.title)}</div>
       <div class="row-sub">${r.players ? `<span class="live">${fmtN(r.players)} jogando agora</span>` : esc(r.year)}</div>
@@ -823,7 +832,7 @@ function openGame(game, result, back) {
       ${isNew ? "" : `<button class="btn btn-danger" id="del">Remover</button>`}
     </div>
     <div class="hero">
-      ${coverHTML(covers, draft.title)}
+      ${coverHTML(covers, draft.title, { eager: true })}
       <div>
         <h2 class="hero-title">${esc(draft.title)}</h2>
         <div class="hero-sub">${esc(draft.year || "")}</div>
@@ -1624,9 +1633,20 @@ function mergeData(r) {
   store.save("backlog.achTracked.v1", tracked);
   store.save("backlog.profile.v1", profile);
 }
+const coverQueue = [], coverBusy = new Set();
+let coverRunning = 0;
 function ensureCovers() {
-  games.filter(g => !g.cover && (g.coverRemote || toArr(g.coverAlts).length)).forEach(g =>
-    downloadCover(gameCovers(g), "cover_" + g.id).then(l => { if (l) { g.cover = l; store.save("backlog.games.v1", games); } }));
+  games.filter(g => !g.cover && !coverBusy.has(g.id) && (g.coverRemote || toArr(g.coverAlts).length)).forEach(g => { coverBusy.add(g.id); coverQueue.push(g); });
+  pumpCovers();
+}
+function pumpCovers() {
+  while (coverRunning < 2 && coverQueue.length) {
+    const g = coverQueue.shift();
+    coverRunning++;
+    downloadCover(gameCovers(g), "cover_" + g.id).then(l => {
+      if (l) { g.cover = l; clearTimeout(pumpCovers.t); pumpCovers.t = setTimeout(() => store.save("backlog.games.v1", games), 500); }
+    }).finally(() => { coverRunning--; coverBusy.delete(g.id); pumpCovers(); });
+  }
 }
 
 async function fullSync() {
@@ -3629,8 +3649,7 @@ applyTheme();
 renderLibrary();
 startCloud();
 setTimeout(autoUpdateCheck, 2500);
-// Jogos antigos sem cópia local da capa: baixa agora em segundo plano
-games.filter(g => !g.cover && (g.coverRemote || (g.coverAlts || []).length)).forEach(g =>
-  downloadCover(gameCovers(g), "cover_" + g.id).then(l => { if (l) { g.cover = l; saveGames(); } }));
+// Jogos sem cópia local da capa: baixa em segundo plano, 2 de cada vez
+setTimeout(ensureCovers, 1200);
 setTimeout(loadWikiThumbs, 1500);
 })();

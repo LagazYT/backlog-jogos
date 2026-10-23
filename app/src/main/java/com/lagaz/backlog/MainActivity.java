@@ -70,6 +70,8 @@ public class MainActivity extends Activity {
     private static final String USER_AGENT = "BacklogApp/1.0 (Android; app pessoal de backlog de jogos)";
     private WebView web;
     private final ExecutorService pool = Executors.newFixedThreadPool(6);
+    // Imagens em fila própria, para não atrasar as buscas e o login
+    private final ExecutorService imagePool = Executors.newFixedThreadPool(3);
     private File coverDir;
     private volatile String webUA = USER_AGENT;
     private ValueCallback<Uri[]> fileCallback;
@@ -98,6 +100,7 @@ public class MainActivity extends Activity {
         s.setAllowFileAccessFromFileURLs(true);
         s.setMediaPlaybackRequiresUserGesture(true);
         s.setTextZoom(100);
+        s.setCacheMode(WebSettings.LOAD_DEFAULT);
         webUA = s.getUserAgentString();
 
         web.addJavascriptInterface(new Bridge(), "AndroidBridge");
@@ -162,6 +165,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         pool.shutdownNow();
+        imagePool.shutdownNow();
         web.destroy();
         super.onDestroy();
     }
@@ -218,7 +222,7 @@ public class MainActivity extends Activity {
         /** Baixa a imagem e salva em files/covers. Responde com o caminho file://. */
         @JavascriptInterface
         public void downloadImage(final String url, final String key, final String id) {
-            pool.submit(() -> {
+            imagePool.submit(() -> {
                 try {
                     byte[] data;
                     if (url.startsWith("file://")) {
@@ -592,7 +596,7 @@ public class MainActivity extends Activity {
         /** Lê uma imagem (file:// ou https) e devolve como data URL, para desenhar no cartão. */
         @JavascriptInterface
         public void imageData(final String url, final String id) {
-            pool.submit(() -> {
+            imagePool.submit(() -> {
                 try {
                     byte[] data;
                     String mime = "image/jpeg";
