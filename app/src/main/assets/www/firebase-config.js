@@ -1,7 +1,7 @@
-// Configuração do Firebase (valores públicos; a segurança vem das regras do banco).
-// Deixe vazio para usar o app sem login.
+// Configuração do Firebase (valores públicos; quem protege os dados são as regras do banco).
+// webClientId fica vazio enquanto o login com Google não for ativado.
 window.FIREBASE = {
-  apiKey: "",
+  apiKey: "AIzaSyBt6nEnC3Bxgyxh1C5YzmitTJxxoD9zqjg",
   webClientId: "",
-  databaseURL: ""
+  databaseURL: "https://backlog-jogos-c12e9-default-rtdb.firebaseio.com"
 };
