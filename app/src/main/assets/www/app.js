@@ -1439,7 +1439,7 @@ function renderSettings() {
           <span class="row-chev">${ICON.chev}</span></button></div>
       </div>
     </div>
-    <p class="about">Backlog ${esc(APP.tag)}. Capas da Wikipédia e da Steam. Conquistas e jogadores agora vêm da Steam.</p>`;
+    <p class="about">Zerei ${esc(APP.tag)}. Capas da Wikipédia e da Steam. Conquistas e jogadores agora vêm da Steam.</p>`;
   wireSocialSettings();
 }
 $("#settings").addEventListener("click", e => {
@@ -1493,7 +1493,7 @@ function backupData() {
 }
 function exportBackup() {
   const data = backupData();
-  if (Native && Native.share) { Native.share(data, "Backup do Backlog"); return; }
+  if (Native && Native.share) { Native.share(data, "Backup do Zerei"); return; }
   navigator.clipboard?.writeText(data).then(() => toast("Backup copiado"), () => toast("Não foi possível copiar"));
 }
 function openImport() {
@@ -1508,7 +1508,7 @@ function openImport() {
   body.querySelector("#imp-go").addEventListener("click", () => {
     let d;
     try { d = JSON.parse(body.querySelector("#imp-text").value); } catch (_) { toast("Esse texto não é um backup válido"); return; }
-    if (!d || d.app !== "backlog" || !Array.isArray(d.games)) { toast("Esse texto não é um backup do Backlog"); return; }
+    if (!d || d.app !== "backlog" || !Array.isArray(d.games)) { toast("Esse texto não é um backup do Zerei"); return; }
     let added = 0;
     d.games.forEach(g => {
       if (!g.title || games.some(x => norm(x.title) === norm(g.title))) return;
@@ -2014,7 +2014,7 @@ window.__updateProgress = pct => {
 };
 function installNow() {
   const res = Native && Native.installUpdate ? Native.installUpdate() : "missing";
-  if (res === "permission") toast("Permita instalar apps do Backlog e toque em Instalar de novo");
+  if (res === "permission") toast("Permita instalar apps do Zerei e toque em Instalar de novo");
   if (res === "missing") startUpdateDownload().catch(() => {});
 }
 function openUpdateSheet() {
@@ -3010,7 +3010,7 @@ function drawBrand(ctx, x, y, c) {
   ctx.fillStyle = "#0B0B0C"; ctx.beginPath(); ctx.arc(72.5, 53, 3.6, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
   setFont(ctx, 900, 44, "condensed"); ctx.fillStyle = "#F6F4EE"; ctx.textAlign = "left";
-  ctx.fillText("Backlog", x + 66, y);
+  ctx.fillText("Zerei", x + 66, y);
 }
 async function drawFooter(ctx, W, H, c) {
   const av = await avatarImage();
@@ -3019,7 +3019,7 @@ async function drawFooter(ctx, W, H, c) {
   setFont(ctx, 800, 36); ctx.fillStyle = "#F6F4EE"; ctx.textAlign = "left";
   ctx.fillText(profile.name || "Meu backlog", 168, y + 34);
   setFont(ctx, 500, 28); ctx.fillStyle = "rgba(246,244,238,0.6)";
-  ctx.fillText(socialMe && socialMe.handle ? "@" + socialMe.handle : "no app Backlog", 168, y + 70);
+  ctx.fillText(socialMe && socialMe.handle ? "@" + socialMe.handle : "no app Zerei", 168, y + 70);
   ctx.strokeStyle = "rgba(246,244,238,0.15)"; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(72, y - 36); ctx.lineTo(W - 72, y - 36); ctx.stroke();
 }
@@ -3156,14 +3156,14 @@ async function openShareCard(what, back) {
   prev.innerHTML = `<img src="${data}" alt="Prévia do cartão">`;
   const go = body.querySelector("#sh-go"), save = body.querySelector("#sh-save");
   go.disabled = save.disabled = false;
-  const text = g ? `${g.title}${g.rating ? ` ${starsText(g.rating)}` : ""} no meu Backlog` : `Minha meta de ${what.year} no Backlog`;
+  const text = g ? `${g.title}${g.rating ? ` ${starsText(g.rating)}` : ""} no Zerei` : `Minha meta de ${what.year} no Zerei`;
   go.onclick = async () => {
     if (Native && Native.shareImage) { try { await callNative("shareImage", data, text); } catch (_) { toast("Não deu para compartilhar agora"); } }
     else toast("Toque e segure na imagem para salvar ou compartilhar");
   };
   save.onclick = async () => {
     if (!(Native && Native.saveImage)) { toast("Toque e segure na imagem para salvar"); return; }
-    try { await callNative("saveImage", data, "backlog-" + Date.now()); toast("Imagem salva em Imagens > Backlog"); }
+    try { await callNative("saveImage", data, "zerei-" + Date.now()); toast("Imagem salva em Imagens > Zerei"); }
     catch (e) { toast(String(e.message).includes("antigo") ? "Neste Android, use Compartilhar e escolha salvar" : "Não deu para salvar agora"); }
   };
   body.querySelector("#sh-fmt").onclick = e => { const b = e.target.closest("[data-v]"); if (b && b.dataset.v !== shareFormat) { shareFormat = b.dataset.v; openShareCard(what, back); } };

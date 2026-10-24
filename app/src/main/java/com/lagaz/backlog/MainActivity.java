@@ -661,7 +661,7 @@ public class MainActivity extends Activity {
                     ContentValues v = new ContentValues();
                     v.put(MediaStore.Images.Media.DISPLAY_NAME, name + ".png");
                     v.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
-                    v.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Backlog");
+                    v.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Zerei");
                     Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
                     if (uri == null) { reply(id, false, "sem acesso"); return; }
                     try (OutputStream out = getContentResolver().openOutputStream(uri)) { out.write(decodeDataUrl(dataUrl)); }

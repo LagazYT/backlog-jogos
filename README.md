@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎮 Backlog
+# 🎮 Zerei
 
 **Aquele app pra você parar de mentir que vai zerar todos os jogos que comprou na promoção.**
 
@@ -10,7 +10,7 @@ Organize sua pilha de jogos, dê nota, escreva o que achou, veja quanto tempo le
 ![Android 8+](https://img.shields.io/badge/Android-8%2B-F03A2E?style=for-the-badge&labelColor=0B0B0C)
 ![Grátis](https://img.shields.io/badge/pre%C3%A7o-de%20gra%C3%A7a-F6F4EE?style=for-the-badge&labelColor=0B0B0C)
 
-<img src="docs/banner.png" alt="Telas do app Backlog" width="100%">
+<img src="docs/banner.png" alt="Telas do app Zerei" width="100%">
 
 </div>
 
@@ -19,7 +19,7 @@ Organize sua pilha de jogos, dê nota, escreva o que achou, veja quanto tempo le
 ## 🤔 Que app é esse?
 
 Sabe aquela biblioteca na Steam com 300 jogos e você jogando o mesmo de sempre? Pois é.
-O **Backlog** é um diário de jogos: você anota o que está jogando, o que quer jogar, o que zerou e o que largou no meio (sem julgamentos 👀).
+O **Zerei** é um diário de jogos: você anota o que está jogando, o que quer jogar, o que zerou e o que largou no meio (sem julgamentos 👀).
 
 Feito pelo canal **Lagaz**, pra quem leva a sério essa coisa de "um dia eu zero".
 
@@ -71,7 +71,7 @@ Feito pelo canal **Lagaz**, pra quem leva a sério essa coisa de "um dia eu zero
 ## 📥 Como instalar
 
 1. Abre a página de **[Releases](https://github.com/LagazYT/backlog-jogos/releases/latest)** pelo celular.
-2. Baixa o arquivo **`Backlog.apk`**.
+2. Baixa o arquivo **`Zerei.apk`**.
 3. Toca nele. O Android vai perguntar se pode instalar apps dessa fonte, é só permitir.
 4. Pronto, bora organizar esse backlog. 🎉
 

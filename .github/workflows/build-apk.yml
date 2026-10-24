@@ -40,20 +40,24 @@ jobs:
           N=${{ github.run_number }}
           echo "window.APP_VERSION = { tag: \"v1.7.$N\", build: $N };" > app/src/main/assets/www/version.js
           ./gradlew --no-daemon assembleRelease -Pvc=$N -Pvn=1.7.$N 2>&1 | tee build.log | tail -40; test ${PIPESTATUS[0]} -eq 0 || { grep -E -A8 "What went wrong|error:" build.log | sed 's/^/::error::/' | head -20; exit 1; }
-          cp app/build/outputs/apk/release/app-release.apk Backlog.apk
+          cp app/build/outputs/apk/release/app-release.apk Zerei.apk
+          # Cópia com o nome antigo, para o link de download antigo continuar funcionando
+          cp Zerei.apk Backlog.apk
           rm -f app/release.jks
 
       - name: Guardar o APK nos artefatos
         uses: actions/upload-artifact@v4
         with:
-          name: Backlog-apk
-          path: Backlog.apk
+          name: Zerei-apk
+          path: Zerei.apk
 
       - name: Publicar na página de Releases
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.7.${{ github.run_number }}
-          name: Backlog 1.7.${{ github.run_number }}
-          files: Backlog.apk
+          name: Zerei 1.7.${{ github.run_number }}
+          files: |
+            Zerei.apk
+            Backlog.apk
           body: ${{ github.event.head_commit.message }}
