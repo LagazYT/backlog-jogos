@@ -738,3 +738,30 @@ textarea.review:focus { border-color: var(--accent); }
 .n-goal { background: var(--accent-2); color: var(--on-accent-2); }
 .n-cover { width: 44px; }
 .n-cover .cover { border-radius: 8px; }
+
+/* ---------- Estrelas com meia nota ---------- */
+.st { font-style: normal; display: inline-block; }
+.st.e { color: var(--bg-3); }
+.minstars .st.h, .post-stars .st.h {
+  background: linear-gradient(90deg, var(--accent-text) 50%, var(--bg-3) 50%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.minstars .st.h { background: linear-gradient(90deg, var(--accent-text) 50%, transparent 50%); -webkit-background-clip: text; background-clip: text; }
+.big-stars { font-size: 15px; }
+.stars-wrap { display: flex; align-items: center; gap: 10px; }
+.star { position: relative; color: var(--bg-3); }
+.star-fill { position: absolute; inset: 0; display: grid; place-items: center; color: var(--accent); clip-path: inset(0 calc(100% - var(--w, 0%)) 0 0); pointer-events: none; }
+.star-fill svg { width: 34px; height: 34px; fill: currentColor; stroke: none; }
+.star-val { font-stretch: 70%; font-weight: 900; font-size: 26px; color: var(--accent-text); font-variant-numeric: tabular-nums; min-width: 34px; }
+.star-hint { margin: 6px 0 0; font-size: 12.5px; color: var(--faint); }
+.post-edit { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 17px; background: var(--bg-3); font-size: 13px; font-weight: 700; }
+.post-edit svg { width: 16px; height: 16px; }
+#pm-edit svg { width: 18px; height: 18px; }
+.post-stars .st.f { color: var(--accent-text); }
+.post-stars .st.e { color: var(--bg-3); }
+.case-sub .minstars { font-size: 11.5px; font-weight: 800; letter-spacing: 0; }
+.rate-badge {
+  position: absolute; z-index: 3; left: 5px; bottom: 5px;
+  font-size: 10.5px; font-weight: 800; line-height: 1; padding: 3px 5px; border-radius: 5px;
+  background: rgba(11, 11, 12, .78); color: var(--accent); font-variant-numeric: tabular-nums; pointer-events: none;
+}

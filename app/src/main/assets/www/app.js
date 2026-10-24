@@ -151,7 +151,7 @@ function platBadge(p) {
 }
 function coverHTML(urls, title, opts = {}) {
   const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);
-  const fb = `<div class="cover-fallback">${esc(title)}</div>${opts.plat ? platBadge(opts.plat) : ""}`;
+  const fb = `<div class="cover-fallback">${esc(title)}</div>${opts.plat ? platBadge(opts.plat) : ""}${opts.rate ? `<span class="rate-badge" aria-label="Nota ${fmtH(clampRating(opts.rate))}">★ ${fmtH(clampRating(opts.rate))}</span>` : ""}`;
   const wikiAttr = (opts.wiki ? ` data-wiki="${esc(opts.wiki)}"` : "") + (opts.steam ? ` data-steam="${esc(opts.steam)}"` : "") + (title ? ` data-title="${esc(title)}"` : "");
   if (!list.length) return `<div class="cover"${wikiAttr}>${fb}</div>`;
   const co = /upload\.wikimedia\.org/.test(list[0]) ? ' crossorigin="anonymous"' : "";
@@ -283,6 +283,46 @@ const ICON = {
   trophy: '<svg viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H4.5a3.5 3.5 0 0 0 3.6 4M16 6h3.5a3.5 3.5 0 0 1-3.6 4M12 13v4M8.5 20h7"/></svg>'
 };
 
+/* Notas de 0,5 a 5, de meia em meia estrela */
+const clampRating = r => Math.max(0, Math.min(5, Math.round((Number(r) || 0) * 2) / 2));
+function starsHTML(r, cls = "minstars", empties = false) {
+  r = clampRating(r);
+  if (!r) return "";
+  let h = "";
+  for (let i = 1; i <= 5; i++) {
+    const k = r >= i ? "f" : r >= i - 0.5 ? "h" : "e";
+    if (k === "e" && !empties) continue;
+    h += `<i class="st ${k}">★</i>`;
+  }
+  return `<span class="${cls}" aria-label="${fmtH(r)} de 5 estrelas">${h}</span>`;
+}
+const starsText = r => { r = clampRating(r); return "★".repeat(Math.floor(r)) + (r % 1 ? "½" : ""); };
+function starPickerHTML(r) {
+  r = clampRating(r);
+  return `<div class="stars-wrap"><div class="stars" id="f-stars">${[1, 2, 3, 4, 5].map(n => {
+    const w = r >= n ? 100 : r >= n - 0.5 ? 50 : 0;
+    return `<button class="star" data-v="${n}" aria-label="${n} de 5">${ICON.star}<span class="star-fill" style="--w:${w}%">${ICON.star}</span></button>`;
+  }).join("")}</div><span class="star-val" id="f-star-val">${r ? fmtH(r) : ""}</span></div>
+  <p class="star-hint">Toque na metade esquerda de uma estrela para dar meia.</p>`;
+}
+function wireStarPicker(root, get, set) {
+  const box = root.querySelector("#f-stars");
+  const paint = () => {
+    const r = get();
+    box.querySelectorAll(".star").forEach(b => { const n = +b.dataset.v; b.querySelector(".star-fill").style.setProperty("--w", (r >= n ? 100 : r >= n - 0.5 ? 50 : 0) + "%"); });
+    root.querySelector("#f-star-val").textContent = r ? fmtH(r) : "";
+  };
+  box.addEventListener("click", e => {
+    const b = e.target.closest("[data-v]");
+    if (!b) return;
+    const rect = b.getBoundingClientRect();
+    const n = +b.dataset.v;
+    const v = (e.clientX - rect.left) < rect.width / 2 ? n - 0.5 : n;
+    set(clampRating(v) === get() ? 0 : clampRating(v));
+    paint();
+  });
+}
+
 function barsHTML(p, max) {
   const row = (label, h, cls) => `<div>
       <div class="bar-head"><span>${label}</span><b>${fmtH(h)}<small> h</small></b></div>
@@ -378,9 +418,9 @@ function renderLibrary() {
   const list = sortGames(games.filter(g => inPlat(g) && (libFilter === "all" ? g.status !== "playing" || !playing.length : g.status === libFilter)));
   const caseHTML = g => {
     const st = statusOf(g.status);
-    const stars = g.rating ? `<span class="minstars">${"★".repeat(g.rating)}</span>` : "";
+    const stars = "";
     return `<button class="case" data-id="${g.id}">
-      ${coverHTML(gameCovers(g), g.title, { plat: g.platform, steam: g.steamId })}
+      ${coverHTML(gameCovers(g), g.title, { plat: g.platform, steam: g.steamId, rate: g.rating })}
       <div class="case-title">${esc(g.title)}</div>
       <div class="case-sub"><span class="pip" style="background:${st.color}"></span>${esc(st.label)} ${stars}</div>
     </button>`;
@@ -859,8 +899,7 @@ function openGame(game, result, back) {
 
     <div class="field">
       <span class="field-label">Sua nota</span>
-      <div class="stars" id="f-stars">${[1, 2, 3, 4, 5].map(n =>
-        `<button class="star ${draft.rating >= n ? "is-on" : ""}" data-v="${n}" aria-label="${n} de 5">${ICON.star}</button>`).join("")}</div>
+      ${starPickerHTML(draft.rating)}
     </div>
 
     <div class="field">
@@ -949,23 +988,20 @@ function openGame(game, result, back) {
     const others = sum.items.filter(r => r.uid !== auth.uid);
     if (!others.length) { ns.textContent = "Ninguém mais avaliou esse jogo na rede ainda."; return; }
     const rated = others.filter(r => r.rating), avg = rated.length ? rated.reduce((a, r) => a + r.rating, 0) / rated.length : 0;
-    ns.innerHTML = `${avg ? `Média da rede: <b>${fmtH(Math.round(avg * 10) / 10)}</b> <span class="minstars">${"★".repeat(Math.round(avg))}</span>, ` : ""}${others.length} ${others.length === 1 ? "avaliação" : "avaliações"}. <button class="link-btn" id="net-see" style="margin:0">Ver</button>`;
+    ns.innerHTML = `${avg ? `Média da rede: <b>${fmtH(Math.round(avg * 10) / 10)}</b> ${starsHTML(Math.round(avg * 2) / 2)}, ` : ""}${others.length} ${others.length === 1 ? "avaliação" : "avaliações"}. <button class="link-btn" id="net-see" style="margin:0">Ver</button>`;
     ns.querySelector("#net-see").onclick = () => openNetGame(keyOf(draft.title), draft.title, safeImg(covers[0]) || safeImg(covers[1]) || "", () => game ? openGame(game, null, back) : openGame(null, result, back));
   }).catch(() => { if (ns.isConnected) ns.textContent = ""; });
-  body.querySelector("#f-stars").addEventListener("click", e => {
-    const b = e.target.closest("[data-v]");
-    if (!b) return;
-    const n = +b.dataset.v;
-    draft.rating = draft.rating === n ? 0 : n;
-    body.querySelectorAll(".star").forEach(s => s.classList.toggle("is-on", +s.dataset.v <= draft.rating));
-  });
+  wireStarPicker(body, () => clampRating(draft.rating), v => { draft.rating = v; });
   const hoursInput = body.querySelector("#f-hours");
   hoursInput.addEventListener("input", () => { draft.hours = hoursInput.value; compare(); });
   body.querySelectorAll("[data-step]").forEach(b => b.addEventListener("click", () => {
     const v = Math.max(0, (parseFloat(hoursInput.value) || 0) + +b.dataset.step);
     hoursInput.value = v; draft.hours = String(v); compare();
   }));
-  body.querySelector("#f-review").addEventListener("input", e => draft.review = e.target.value);
+  const rv = body.querySelector("#f-review");
+  const grow = () => { rv.style.height = "auto"; rv.style.height = Math.max(130, rv.scrollHeight + 2) + "px"; };
+  rv.addEventListener("input", e => { draft.review = e.target.value; grow(); });
+  setTimeout(grow, 0);
 
   body.querySelector("#save").addEventListener("click", () => {
     if (!draft.platform) { toast("Escolha a plataforma em que você jogou"); return; }
@@ -2626,7 +2662,7 @@ function openGoals(year) {
       ${list.length ? `<ul class="rows" style="padding:0">${list.map(g => `<li><button class="row" data-gid="${g.id}">
           ${coverHTML(gameCovers(g), g.title)}
           <div><div class="row-title">${esc(g.title)}</div>
-          <div class="row-sub">${fmtDay(g.doneAt)}${g.hours ? `, ${fmtH(g.hours)} h` : ""}${g.rating ? ` <span class="minstars">${"★".repeat(g.rating)}</span>` : ""}</div></div>
+          <div class="row-sub">${fmtDay(g.doneAt)}${g.hours ? `, ${fmtH(g.hours)} h` : ""}${g.rating ? ` ${starsHTML(g.rating)}` : ""}</div></div>
           <span class="row-chev">${ICON.chev}</span></button></li>`).join("")}</ul>`
         : `<p class="hero-sub" style="margin:0">Nenhum jogo zerado em ${y} ainda.</p>`}
       ${noDate ? `<p class="panel-note">${noDate} ${noDate === 1 ? "jogo zerado não tem" : "jogos zerados não têm"} data. Abra o jogo e preencha "Zerado em" para ${noDate === 1 ? "ele contar" : "eles contarem"} na meta.</p>` : ""}
@@ -2658,7 +2694,7 @@ function eventText(e, g) {
   const t = `<b>${esc(g.title)}</b>`;
   if (e.type === "added") return `Adicionou ${t} à estante`;
   if (e.type === "imported") return `Importou ${t} da ${esc(SRC_NAME[e.src] || e.src || "conta")}`;
-  if (e.type === "rating") return `Deu ${e.n} ${e.n === 1 ? "estrela" : "estrelas"} para ${t}`;
+  if (e.type === "rating") return `Deu ${fmtH(e.n)} ${e.n <= 1 ? "estrela" : "estrelas"} para ${t}`;
   if (e.type === "review") return `Escreveu uma análise de ${t}`;
   if (e.type === "status") return ({ playing: `Começou a jogar ${t}`, done: `Zerou ${t}`, dropped: `Abandonou ${t}`, backlog: `Colocou ${t} na lista` })[e.to] || t;
   return t;
@@ -3012,7 +3048,13 @@ async function drawGameCard(g, format) {
   const starsRow = (cx, y, size, align) => {
     const gap = size * 0.28, total = 5 * size + 4 * gap;
     let x = align === "center" ? cx - total / 2 : cx;
-    for (let i = 1; i <= 5; i++) { ctx.fillStyle = i <= (g.rating || 0) ? c.a : "rgba(246,244,238,0.18)"; drawStar(ctx, x + size / 2, y, size / 2); x += size + gap; }
+    const r = clampRating(g.rating);
+    for (let i = 1; i <= 5; i++) {
+      ctx.fillStyle = "rgba(246,244,238,0.18)"; drawStar(ctx, x + size / 2, y, size / 2);
+      const part = r >= i ? 1 : r >= i - 0.5 ? 0.5 : 0;
+      if (part) { ctx.save(); ctx.beginPath(); ctx.rect(x - 2, y - size, (size + 4) * part, size * 2); ctx.clip(); ctx.fillStyle = c.a; drawStar(ctx, x + size / 2, y, size / 2); ctx.restore(); }
+      x += size + gap;
+    }
   };
   const quote = (x, y, w, lines, align) => {
     if (!g.review) return y;
@@ -3114,7 +3156,7 @@ async function openShareCard(what, back) {
   prev.innerHTML = `<img src="${data}" alt="Prévia do cartão">`;
   const go = body.querySelector("#sh-go"), save = body.querySelector("#sh-save");
   go.disabled = save.disabled = false;
-  const text = g ? `${g.title}${g.rating ? ` ${"★".repeat(g.rating)}` : ""} no meu Backlog` : `Minha meta de ${what.year} no Backlog`;
+  const text = g ? `${g.title}${g.rating ? ` ${starsText(g.rating)}` : ""} no meu Backlog` : `Minha meta de ${what.year} no Backlog`;
   go.onclick = async () => {
     if (Native && Native.shareImage) { try { await callNative("shareImage", data, text); } catch (_) { toast("Não deu para compartilhar agora"); } }
     else toast("Toque e segure na imagem para salvar ou compartilhar");
@@ -3137,6 +3179,7 @@ const socialReady = () => cloudReady && auth && socialMe && socialMe.uid === aut
 const keyOf = title => norm(title).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80) || "jogo";
 const safeImg = u => typeof u === "string" && (/^data:image\/(png|jpe?g|webp);base64,/.test(u) || /^https:\/\//.test(u)) ? u : "";
 const HEART = '<svg viewBox="0 0 24 24"><path d="M12 20s-7.5-4.4-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.6-7.5 10-7.5 10z"/></svg>';
+const PENCIL = '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>';
 const DOTS = '<svg viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="18.5" cy="12" r="1.4" fill="currentColor"/></svg>';
 
 async function dbURL(path, params) {
@@ -3182,11 +3225,13 @@ function scheduleSocial() {
   socialTimer = setTimeout(() => publishProfile().catch(() => {}), 4000);
 }
 function reviewPayload(g) {
+  if (!g.sharedAt) g.sharedAt = Date.now();
+  const edited = Date.now() - g.sharedAt > 60000 ? Date.now() : null;
   return {
     uid: auth.uid, handle: socialMe.handle, gameKey: keyOf(g.title), game: g.title,
     cover: safeImg(g.coverRemote) || safeImg((g.coverAlts || [])[0]) || "",
     rating: g.rating || 0, text: (g.review || "").slice(0, 2000), spoiler: !!g.spoiler,
-    hours: Number(g.hours) || 0, platform: g.platform || "", status: g.status, at: Date.now()
+    hours: Number(g.hours) || 0, platform: g.platform || "", status: g.status, at: g.sharedAt, edited
   };
 }
 async function syncReview(g) {
@@ -3239,19 +3284,20 @@ function postHTML(r, prof, likes, opts = {}) {
   return `<article class="post" data-rid="${esc(r.id)}" data-uid="${esc(r.uid)}">
     ${opts.hideUser ? "" : `<header class="post-head">
       <button class="post-user" data-user="${esc(r.uid)}">${avatarFor(prof, 38)}<span><b>${esc((prof && prof.name) || r.handle)}</b><small>@${esc(r.handle)}</small></span></button>
-      <span class="post-time">${ago(r.at)}</span>
+      <span class="post-time">${ago(r.at)}${r.edited ? ", editada" : ""}</span>
       <button class="icon-btn post-more" data-more="${esc(r.id)}" aria-label="Mais opções">${DOTS}</button>
     </header>`}
     ${opts.hideGame ? "" : `<button class="post-game" data-game="${esc(r.gameKey)}" data-title="${esc(r.game)}" data-cover="${esc(safeImg(r.cover))}">
       ${coverHTML([safeImg(r.cover)].filter(Boolean), r.game)}
       <span><b>${esc(r.game)}</b>
-        ${r.rating ? `<span class="post-stars" aria-label="${r.rating} de 5">${"★".repeat(r.rating)}<i>${"★".repeat(5 - r.rating)}</i></span>` : ""}
+        ${r.rating ? starsHTML(r.rating, "post-stars", true) : ""}
         <small>${[st.label, r.hours ? `${fmtH(r.hours)} h` : "", platLabel(r.platform)].filter(Boolean).map(esc).join(", ")}</small></span>
     </button>`}
     ${r.text ? `<div class="post-text ${r.spoiler ? "is-spoiler" : ""}" ${r.spoiler ? `data-spoiler` : ""}>
       ${r.spoiler ? `<span class="spoiler-tag">Contém spoiler. Toque para ler</span>` : ""}<p>${esc(r.text)}</p></div>` : ""}
     <footer class="post-foot">
       <button class="like ${mine ? "is-on" : ""}" data-like="${esc(r.id)}" aria-pressed="${mine}">${HEART}<span>${n || ""}</span></button>
+      ${r.uid === auth.uid ? `<button class="post-edit" data-edit="${esc(r.id)}">${PENCIL}Editar</button>` : ""}
       ${opts.hideUser ? `<span class="post-time">${ago(r.at)}</span>` : ""}
     </footer>
   </article>`;
@@ -3272,6 +3318,7 @@ function wirePosts(root, refresh) {
     try { on ? await dbPut(`likes/${b.dataset.like}/${auth.uid}`, true) : await dbDel(`likes/${b.dataset.like}/${auth.uid}`); }
     catch (_) { toast("Não deu para curtir agora"); }
   });
+  root.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editMyReview(b.dataset.edit, refresh));
   root.querySelectorAll("[data-more]").forEach(b => b.onclick = () => {
     const card = b.closest(".post");
     openPostMenu(card.dataset.rid, card.dataset.uid, refresh);
@@ -3283,12 +3330,26 @@ function openPostMenu(rid, uid, back) {
     <div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${ICON.back}</button></div>
     <div class="actions" style="margin-top:22px">
       <button class="btn btn-ghost" id="pm-profile">Ver perfil</button>
-      ${mineP ? "" : `
+      ${mineP ? `<button class="btn btn-primary" id="pm-edit">${PENCIL}Editar avaliação</button>
+      <button class="btn btn-danger" id="pm-del">Tirar da rede</button>` : `
       <span class="field-label" style="margin:14px 0 0">Denunciar esta avaliação</span>
       <div class="seg" id="pm-reasons">${["Spam", "Ofensiva ou com ódio", "Spoiler sem aviso", "Outro motivo"].map(r => `<button class="chip" data-v="${r}">${r}</button>`).join("")}</div>
       <button class="btn btn-danger" id="pm-block">Bloquear esta pessoa</button>`}
     </div>`, back);
   body.querySelector("#pm-profile").onclick = () => openNetProfile(uid, back);
+  const pe = body.querySelector("#pm-edit");
+  if (pe) pe.onclick = () => editMyReview(rid, back);
+  const pd = body.querySelector("#pm-del");
+  if (pd) pd.onclick = async () => {
+    if (!pd.dataset.armed) { pd.dataset.armed = "1"; pd.textContent = "Toque de novo para tirar da rede"; return; }
+    try {
+      await dbDel(`reviews/${rid}`);
+      const g = games.find(x => `${auth.uid}_${keyOf(x.title)}` === rid);
+      if (g) { g.shared = false; saveGames(); }
+      toast("Avaliação tirada da rede. Ela continua na sua estante.");
+    } catch (_) { toast("Não deu agora. Tente de novo."); }
+    back ? back() : (closeSheet(), renderNet());
+  };
   const rs = body.querySelector("#pm-reasons");
   if (rs) rs.onclick = async e => {
     const b = e.target.closest("[data-v]"); if (!b) return;
@@ -3302,6 +3363,46 @@ function openPostMenu(rid, uid, back) {
     store.save("backlog.blocked.v1", blocked);
     toast("Pessoa bloqueada. As avaliações dela não aparecem mais para você.");
     renderNet(); closeSheet();
+  };
+}
+
+/* --- Editar uma avaliação sua --- */
+async function editMyReview(rid, back) {
+  const g = games.find(x => `${auth.uid}_${keyOf(x.title)}` === rid);
+  if (g) {
+    // Está na estante: edita direto na ficha do jogo
+    openGame(g, null, back);
+    const rv = body.querySelector("#f-review");
+    if (rv) { rv.scrollIntoView({ block: "center" }); setTimeout(() => { rv.focus(); rv.setSelectionRange(rv.value.length, rv.value.length); }, 250); }
+    return;
+  }
+  let r;
+  try { r = await dbGet(`reviews/${rid}`); } catch (_) { toast("Não deu para abrir agora"); return; }
+  if (!r) { toast("Essa avaliação não existe mais"); return; }
+  const d = { rating: clampRating(r.rating), text: r.text || "", spoiler: !!r.spoiler };
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button></div>
+    <h2 class="hero-title" style="margin-top:18px">Editar avaliação</h2>
+    <p class="hero-sub">${esc(r.game)}</p>
+    <div class="field"><span class="field-label">Sua nota</span>${starPickerHTML(d.rating)}</div>
+    <div class="field"><label class="field-label" for="f-review">Sua análise</label>
+      <textarea class="review" id="f-review" maxlength="2000">${esc(d.text)}</textarea></div>
+    <button class="chip ${d.spoiler ? "is-on" : ""}" id="e-spoiler">Minha análise tem spoiler</button>
+    <div class="actions"><button class="btn btn-primary" id="e-save">Salvar avaliação</button></div>`, back);
+  wireStarPicker(body, () => d.rating, v => { d.rating = v; });
+  const rv = body.querySelector("#f-review");
+  rv.oninput = () => { d.text = rv.value; rv.style.height = "auto"; rv.style.height = Math.max(130, rv.scrollHeight + 2) + "px"; };
+  const sp = body.querySelector("#e-spoiler");
+  sp.onclick = () => { d.spoiler = !d.spoiler; sp.classList.toggle("is-on", d.spoiler); };
+  body.querySelector("#e-save").onclick = async e => {
+    const btn = e.currentTarget;
+    if (!d.rating && !d.text.trim()) { toast("Dê uma nota ou escreva algo"); return; }
+    btn.disabled = true;
+    try {
+      await dbPut(`reviews/${rid}`, { ...r, rating: d.rating, text: d.text.trim().slice(0, 2000), spoiler: d.spoiler, edited: Date.now() });
+      toast("Avaliação atualizada");
+      back ? back() : closeSheet();
+    } catch (_) { toast("Não deu para salvar agora. Tente de novo."); btn.disabled = false; }
   };
 }
 
@@ -3532,7 +3633,7 @@ async function openNetGame(gameKey, title, cover, back) {
   const list = body.querySelector("#ng-list");
   if (!list) return;
   body.querySelector("#ng-sum").innerHTML = sum.count
-    ? `${sum.avg ? `<span class="minstars" style="font-size:15px">${"★".repeat(Math.round(sum.avg))}</span> <b>${fmtH(Math.round(sum.avg * 10) / 10)}</b> de média, ` : ""}${sum.count} ${sum.count === 1 ? "avaliação" : "avaliações"} na rede`
+    ? `${sum.avg ? `${starsHTML(Math.round(sum.avg * 2) / 2, "minstars big-stars")} <b>${fmtH(Math.round(sum.avg * 10) / 10)}</b> de média, ` : ""}${sum.count} ${sum.count === 1 ? "avaliação" : "avaliações"} na rede`
     : "Ninguém avaliou esse jogo na rede ainda.";
   const owned = games.find(g => norm(g.title) === norm(title));
   const act = body.querySelector("#ng-act");
@@ -3807,7 +3908,7 @@ async function checkNotifs() {
     if (notifSeen.reviewsAt) {
       Object.entries(revs || {}).filter(([, r]) => r && following.has(r.uid) && r.at > notifSeen.reviewsAt && !blocked.includes(r.uid))
         .sort((a, b) => a[1].at - b[1].at)
-        .forEach(([id, r]) => addNotif({ id: `rev_${id}_${r.at}`, type: "review", text: `@${r.handle} avaliou ${r.game}`, sub: r.rating ? "★".repeat(r.rating) : (r.text || "").slice(0, 80), cover: safeImg(r.cover), act: { kind: "game", gameKey: r.gameKey, title: r.game, cover: safeImg(r.cover) } }));
+        .forEach(([id, r]) => addNotif({ id: `rev_${id}_${r.at}`, type: "review", text: `@${r.handle} avaliou ${r.game}`, sub: r.rating ? starsText(r.rating) : (r.text || "").slice(0, 80), cover: safeImg(r.cover), act: { kind: "game", gameKey: r.gameKey, title: r.game, cover: safeImg(r.cover) } }));
     }
     notifSeen.reviewsAt = Date.now();
   } finally {
