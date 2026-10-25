@@ -1,0 +1,29 @@
+uid=Dp4ZT6Y0yNgNJHhiam1H8oruHMa2
+GET reviews: {"ERYgRj7O0xfqQd19Uufc9fVeTQi1_red-dead-redemption-2":true,"ERYgRj7O0xfqQd19Uufc9fVeTQi1_control-ultimate-edition":true,"ERYgRj7O0xfqQd19Uufc9fVeTQi1_doom-etern
+GET comments: {
+  "error" : "Permission denied"
+}
+GET shelves/x: {
+  "error" : "Permission denied"
+}
+GET lists: {
+  "error" : "Permission denied"
+}
+GET likes: {"Lcby1T9okiS2bt2xFn3xvUVCKbp1_teste":true,"VMpRDgvGF3aZpyMqF33JVw4Gz1S2_doom-the-dark-ages":true}
+GET profiles: {"ERYgRj7O0xfqQd19Uufc9fVeTQi1":true,"VMpRDgvGF3aZpyMqF33JVw4Gz1S2":true}
+GET following: {"ERYgRj7O0xfqQd19Uufc9fVeTQi1":true,"VMpRDgvGF3aZpyMqF33JVw4Gz1S2":true}
+GET lists by uid: {
+  "error" : "Permission denied"
+}
+PUT shelves: {
+  "error" : "Permission denied"
+}
+POST comment: {
+  "error" : "Permission denied"
+}
+DEL comment root: {
+  "error" : "Permission denied"
+}
+delete acct: {
+  "kind": "identitytoolkit#DeleteAccountResponse"
+}
