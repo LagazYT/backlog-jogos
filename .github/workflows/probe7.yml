@@ -2,11 +2,15 @@ name: probe7
 on:
   push:
     branches: [probe7]
+permissions:
+  contents: write
 jobs:
   p:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - run: |
+          exec > out.txt 2>&1
           K=AIzaSyBt6nEnC3Bxgyxh1C5YzmitTJxxoD9zqjg
           DB=https://backlog-jogos-c12e9-default-rtdb.firebaseio.com
           R=$(curl -s "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$K" -H 'Content-Type: application/json' -d "{\"email\":\"probe$RANDOM$RANDOM@example.com\",\"password\":\"probe123456\",\"returnSecureToken\":true}")
@@ -19,3 +23,6 @@ jobs:
           echo "DEL comment root: $(curl -s -X DELETE "$DB/comments/zz_test.json?auth=$T" | head -c 200)"
           curl -s -X DELETE "$DB/shelves/$U.json?auth=$T" >/dev/null
           echo "delete acct: $(curl -s "https://identitytoolkit.googleapis.com/v1/accounts:delete?key=$K" -H 'Content-Type: application/json' -d "{\"idToken\":\"$T\"}" | head -c 100)"
+      - run: |
+          git config user.name bot; git config user.email bot@x
+          git add out.txt; git commit -m "[skip ci] out"; git push
