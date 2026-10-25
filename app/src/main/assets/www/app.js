@@ -3426,6 +3426,8 @@ async function renderNet() {
     box.innerHTML = `<div class="net-intro">
       <p class="empty-title">Entre para ver a rede</p>
       <p class="empty-text">Veja o que a galera está jogando, leia avaliações e publique as suas. Sua estante continua salva no celular, e ganha uma cópia na nuvem.</p>
+      ${googleReady ? `<button class="btn btn-google" id="net-google" style="width:100%;margin-top:4px">${GOOGLE_G}Entrar com Google</button>
+      <div class="or-line"><span>ou com e-mail</span></div>` : ""}
       <form class="email-form" id="net-login">
         <input class="text-input" id="nl-mail" type="email" autocomplete="email" placeholder="E-mail">
         <input class="text-input" id="nl-pass" type="password" autocomplete="current-password" placeholder="Senha (mínimo 6 caracteres)">
@@ -3433,6 +3435,15 @@ async function renderNet() {
         <div class="two-btns"><button class="btn btn-primary" type="submit" data-mode="up">Criar conta</button><button class="btn btn-ghost" type="submit" data-mode="in">Já tenho conta</button></div>
       </form></div>`;
     const f = box.querySelector("#net-login");
+    const gb = box.querySelector("#net-google");
+    if (gb) gb.onclick = async () => {
+      gb.disabled = true;
+      try {
+        await signInGoogle();
+        if (!profile.avatarMode && auth.photo && !profile.photoData) { profile.avatarMode = "google"; store.save("backlog.profile.v1", profile); }
+        toast("Conta Google conectada"); fullSync(); await checkSocialMe(); renderNet();
+      } catch (ex) { const m = authError(ex); if (m) toast(m); gb.disabled = false; }
+    };
     f.onsubmit = async e => {
       e.preventDefault();
       const mode = (e.submitter && e.submitter.dataset.mode) || "in", err = f.querySelector("#nl-err");

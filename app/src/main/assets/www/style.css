@@ -765,3 +765,5 @@ textarea.review:focus { border-color: var(--accent); }
   font-size: 10.5px; font-weight: 800; line-height: 1; padding: 3px 5px; border-radius: 5px;
   background: rgba(11, 11, 12, .78); color: var(--accent); font-variant-numeric: tabular-nums; pointer-events: none;
 }
+.or-line { display: flex; align-items: center; gap: 10px; margin: 16px 0 2px; color: var(--faint); font-size: 12.5px; font-weight: 600; }
+.or-line::before, .or-line::after { content: ""; flex: 1; height: 1px; background: var(--line); }
