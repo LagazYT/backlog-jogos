@@ -1,0 +1,21 @@
+name: probe7
+on:
+  push:
+    branches: [probe7]
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          K=AIzaSyBt6nEnC3Bxgyxh1C5YzmitTJxxoD9zqjg
+          DB=https://backlog-jogos-c12e9-default-rtdb.firebaseio.com
+          R=$(curl -s "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$K" -H 'Content-Type: application/json' -d "{\"email\":\"probe$RANDOM$RANDOM@example.com\",\"password\":\"probe123456\",\"returnSecureToken\":true}")
+          T=$(echo "$R" | jq -r .idToken); U=$(echo "$R" | jq -r .localId)
+          echo "uid=$U"
+          for p in reviews comments shelves/x lists likes profiles following; do echo "GET $p: $(curl -s "$DB/$p.json?auth=$T&shallow=true" | head -c 160)"; done
+          echo "GET lists by uid: $(curl -s "$DB/lists.json?auth=$T&orderBy=%22uid%22&equalTo=%22x%22" | head -c 200)"
+          echo "PUT shelves: $(curl -s -X PUT "$DB/shelves/$U.json?auth=$T" -d '{"at":1,"items":{}}' | head -c 200)"
+          echo "POST comment: $(curl -s -X POST "$DB/comments/zz_test.json?auth=$T" -d "{\"uid\":\"$U\",\"handle\":\"probe\",\"text\":\"t\",\"at\":1}" | head -c 200)"
+          echo "DEL comment root: $(curl -s -X DELETE "$DB/comments/zz_test.json?auth=$T" | head -c 200)"
+          curl -s -X DELETE "$DB/shelves/$U.json?auth=$T" >/dev/null
+          echo "delete acct: $(curl -s "https://identitytoolkit.googleapis.com/v1/accounts:delete?key=$K" -H 'Content-Type: application/json' -d "{\"idToken\":\"$T\"}" | head -c 100)"
