@@ -58,7 +58,7 @@ let settings = { ...DEFAULTS, ...store.load(SETTINGS_KEY, {}) };
 const saveSettings = () => store.save(SETTINGS_KEY, settings);
 
 let games = store.load("backlog.games.v1", []);
-const saveGames = () => { store.save("backlog.games.v1", games); scheduleSync(); };
+const saveGames = () => { store.save("backlog.games.v1", games); scheduleSync(); if (profile.shelfPublic) scheduleSocial(); };
 let coverCache = store.load("backlog.coverCache.v2", {});     // chave -> file:// salvo
 let wikiThumbs = store.load("backlog.wikiThumbs.v1", {});     // título da Wikipédia -> URL
 let tracked = store.load("backlog.achTracked.v1", []);        // jogos com conquistas acompanhadas
@@ -887,6 +887,7 @@ function openGame(game, result, back) {
         ${isNew ? "" : `<button class="link-btn" id="swap">Trocar capa</button>`}
       </div>
     </div>
+    ${isNew ? "" : sessionBtnHTML(game)}
 
     <div class="field">
       <span class="field-label">Onde você jogou</span>
@@ -940,7 +941,8 @@ function openGame(game, result, back) {
 
     <div class="actions">
       <button class="btn btn-primary" id="save">${isNew ? "Adicionar à biblioteca" : "Salvar alterações"}</button>
-      ${isNew ? "" : `<div class="two-btns"><button class="btn btn-ghost" id="see-ach">${ICON.trophy}Conquistas</button><button class="btn btn-ghost" id="share-card">${SHARE}Compartilhar</button></div>`}
+      ${isNew ? "" : `<div class="two-btns"><button class="btn btn-ghost" id="see-ach">${ICON.trophy}Conquistas</button><button class="btn btn-ghost" id="share-card">${SHARE}Compartilhar</button></div>
+      <button class="btn btn-ghost" id="to-list">${LIST_ICO}Colocar em uma lista</button>`}
     </div>`, back);
 
   const compare = () => {
@@ -1067,6 +1069,13 @@ function openGame(game, result, back) {
   if (seeAch) seeAch.addEventListener("click", () => openGameAchievements(game, () => openGame(game, null, back)));
   const shareBtn = body.querySelector("#share-card");
   if (shareBtn) shareBtn.addEventListener("click", () => openShareCard({ kind: "game", game }, () => openGame(game, null, back)));
+  const toList = body.querySelector("#to-list");
+  if (toList) toList.addEventListener("click", () => openAddToList(game, () => openGame(game, null, back)));
+  if (!isNew) wireSessionBtn(body, game, () => openGame(game, null, back), () => {
+    // Começar a jogar muda o status: a ficha aberta acompanha para não desfazer ao salvar
+    draft.status = game.status;
+    body.querySelectorAll("#f-status [data-v]").forEach(x => x.classList.toggle("is-on", x.dataset.v === draft.status));
+  });
 }
 
 /* --- Trocar capa --- */
@@ -1652,7 +1661,7 @@ function collectData() {
       }
     }
   } catch (_) {}
-  return { v: 1, updatedAt: Date.now(), games: games.map(g => ({ ...g, cover: "" })), achievements, tracked, profile, deleted };
+  return { v: 1, updatedAt: Date.now(), games: games.map(g => ({ ...g, cover: "" })), achievements, tracked, profile, deleted, lists };
 }
 function mergeData(r) {
   if (!r) return;
@@ -1675,6 +1684,10 @@ function mergeData(r) {
   toArr(r.tracked).forEach(t => { const l = tmap.get(String(t.appid)); if (!l || (t.at || 0) > (l.at || 0)) tmap.set(String(t.appid), t); });
   tracked = [...tmap.values()].sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 30);
   if (r.profile && (r.profile.at || 0) > (profile.at || 0)) profile = { ...profile, ...r.profile };
+  const lmap = new Map(lists.map(l => [l.id, l]));
+  toArr(r.lists).forEach(rl => { if (!rl || !rl.id) return; const l = lmap.get(rl.id); if (!l || (rl.updatedAt || 0) > (l.updatedAt || 0)) lmap.set(rl.id, { ...rl, items: toArr(rl.items) }); });
+  lists = [...lmap.values()].filter(l => !(deleted[l.id] && deleted[l.id] >= (l.updatedAt || 0)));
+  store.save("backlog.lists.v1", lists);
   store.save("backlog.games.v1", games);
   store.save("backlog.deleted.v1", deleted);
   store.save("backlog.achTracked.v1", tracked);
@@ -2571,6 +2584,8 @@ const isoDate = t => { const d = new Date(t); return `${d.getFullYear()}-${Strin
 const DICE = '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.2" fill="currentColor"/><circle cx="15" cy="15" r="1.2" fill="currentColor"/><circle cx="15" cy="9" r="1.2" fill="currentColor"/><circle cx="9" cy="15" r="1.2" fill="currentColor"/></svg>';
 const FLAG = '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>';
 const CLOCK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>';
+const STARBURST = '<svg viewBox="0 0 24 24"><path d="M12 3l2.2 5.6L20 9.3l-4.4 3.9 1.3 5.8L12 16l-4.9 3 1.3-5.8L4 9.3l5.8-.7z"/></svg>';
+const CMP_ICO = '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="7" height="14" rx="1.5"/><rect x="13.5" y="5" width="7" height="14" rx="1.5"/></svg>';
 const SHARE = '<svg viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4"/><path d="M5 13v5.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V13"/></svg>';
 
 /* --- Bloco extra da Biblioteca: meta do ano e atalhos --- */
@@ -2581,12 +2596,17 @@ function renderLibExtras() {
   const y = new Date().getFullYear();
   const goal = profile.goals && profile.goals[y];
   box.innerHTML = `
+    ${wrapBannerHTML()}
     ${goal ? goalCardHTML(y, goal) : ""}
-    <div class="quick">
+    <div class="quick quick-4">
       <button class="quick-btn" id="q-roulette">${DICE}<span>Sortear jogo</span></button>
       <button class="quick-btn" id="q-goal">${FLAG}<span>${goal ? "Meta do ano" : "Criar meta"}</span></button>
       <button class="quick-btn" id="q-timeline">${CLOCK}<span>Linha do tempo</span></button>
+      <button class="quick-btn" id="q-lists">${LIST_ICO}<span>Listas</span></button>
     </div>`;
+  box.querySelector("#q-lists").onclick = () => openLists();
+  const wb = box.querySelector("#q-wrap");
+  if (wb) wb.onclick = () => { const m = new Date().getMonth(); openWrap(m === 0 ? new Date().getFullYear() - 1 : new Date().getFullYear()); };
   box.querySelector("#q-roulette").onclick = () => openRoulette();
   box.querySelector("#q-goal").onclick = () => openGoals();
   box.querySelector("#q-timeline").onclick = () => openTimeline();
@@ -2672,6 +2692,7 @@ function openGoals(year) {
     <div class="panel">
       <span class="field-label">Zerados por mês</span>
       ${monthBarsHTML(y)}
+      ${y <= new Date().getFullYear() && list.length ? `<button class="btn btn-ghost" id="g-wrap" style="width:100%;margin-top:16px">${STARBURST}${wrapReady(y) ? `Ver retrospectiva de ${y}` : "Prévia da retrospectiva"}</button>` : ""}
     </div>
 
     <div class="field">
@@ -2697,6 +2718,8 @@ function openGoals(year) {
   if (del) del.onclick = () => { delete profile.goals[y]; saveProfile(); renderLibrary(); toast("Meta apagada"); openGoals(y); };
   const sh = body.querySelector("#g-share");
   if (sh) sh.onclick = () => openShareCard({ kind: "goal", year: y }, () => openGoals(y));
+  const gw = body.querySelector("#g-wrap");
+  if (gw) gw.onclick = () => openWrap(y);
   body.querySelector("#g-prev").onclick = () => openGoals(y - 1);
   const nx = body.querySelector("#g-next");
   if (nx && !nx.disabled) nx.onclick = () => openGoals(y + 1);
@@ -2713,6 +2736,7 @@ function eventText(e, g) {
   if (e.type === "imported") return `Importou ${t} da ${esc(SRC_NAME[e.src] || e.src || "conta")}`;
   if (e.type === "rating") return `Deu ${fmtH(e.n)} ${e.n <= 1 ? "estrela" : "estrelas"} para ${t}`;
   if (e.type === "review") return `Escreveu uma análise de ${t}`;
+  if (e.type === "session") return `Jogou ${t} por ${fmtDur(e.min || 0)}`;
   if (e.type === "status") return ({ playing: `Começou a jogar ${t}`, done: `Zerou ${t}`, dropped: `Abandonou ${t}`, backlog: `Colocou ${t} na lista` })[e.to] || t;
   return t;
 }
@@ -2724,6 +2748,7 @@ function openTimeline() {
   const keep = ({ e }) => tlFilter === "all" ? true
     : tlFilter === "done" ? e.type === "status" && e.to === "done"
     : tlFilter === "start" ? e.type === "status" && e.to === "playing"
+    : tlFilter === "session" ? e.type === "session"
     : e.type === "rating" || e.type === "review";
   const items = all.filter(keep);
   const groups = [];
@@ -2737,7 +2762,8 @@ function openTimeline() {
     <div class="sheet-top"><button class="icon-btn" data-back aria-label="Fechar">${ICON.close}</button></div>
     <h2 class="hero-title" style="margin-top:18px">Linha do tempo</h2>
     <p class="hero-sub">Tudo o que aconteceu na sua estante, do mais recente para o mais antigo.</p>
-    <div class="chips" style="padding-left:0;padding-right:0" id="tl-f">${[["all", "Tudo"], ["done", "Zerados"], ["start", "Começados"], ["notes", "Notas e análises"]].map(([id, l]) =>
+    <button class="btn btn-ghost" id="tl-wrap" style="width:100%;margin-top:14px">${STARBURST}${wrapReady(new Date().getFullYear()) ? `Retrospectiva de ${new Date().getFullYear()}` : `Prévia da retrospectiva de ${new Date().getFullYear()}`}</button>
+    <div class="chips" style="padding-left:0;padding-right:0" id="tl-f">${[["all", "Tudo"], ["done", "Zerados"], ["start", "Começados"], ["notes", "Notas e análises"], ["session", "Sessões"]].map(([id, l]) =>
       `<button class="chip ${tlFilter === id ? "is-on" : ""}" data-tf="${id}">${l}</button>`).join("")}</div>
     ${groups.length ? groups.map(gr => `
       <div class="tl-month">${esc(gr.label.charAt(0).toUpperCase() + gr.label.slice(1))}</div>
@@ -2748,6 +2774,7 @@ function openTimeline() {
           <span class="tl-text"><span>${eventText(e, g)}</span><small>${fmtDay(e.t)}${e.approx ? ", data aproximada" : ""}${e.type === "status" && e.to === "done" && g.hours ? `, ${fmtH(g.hours)} h` : ""}</small></span>
         </button></li>`).join("")}</ol>`).join("")
     : `<p class="hero-sub" style="margin-top:20px">Nada por aqui ainda. Conforme você começa, zera ou avalia jogos, a história aparece aqui.</p>`}`);
+  body.querySelector("#tl-wrap").onclick = () => openWrap();
   body.querySelector("#tl-f").onclick = e => { const b = e.target.closest("[data-tf]"); if (b) { tlFilter = b.dataset.tf; const y = body.scrollTop; openTimeline(); body.scrollTop = y; } };
   body.querySelectorAll("[data-gid]").forEach(b => b.onclick = () => openGame(games.find(g => g.id === b.dataset.gid), null, openTimeline));
 }
@@ -3026,7 +3053,7 @@ function drawBrand(ctx, x, y, c) {
   ctx.fillStyle = c.a2; ctx.beginPath(); ctx.arc(66, 46.5, 3.6, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = "#0B0B0C"; ctx.beginPath(); ctx.arc(72.5, 53, 3.6, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
-  setFont(ctx, 900, 44, "condensed"); ctx.fillStyle = "#F6F4EE"; ctx.textAlign = "left";
+  setFont(ctx, 900, 44, "condensed"); ctx.fillStyle = c.t || "#F6F4EE"; ctx.textAlign = "left";
   ctx.fillText("Zerei", x + 80, y);
 }
 async function drawFooter(ctx, W, H, c) {
@@ -3165,7 +3192,7 @@ async function openShareCard(what, back) {
     </div>
     ${g && !g.review ? `<p class="panel-note">Dica: escreva uma análise do jogo e ela aparece no cartão.</p>` : ""}`, back);
   let data = null;
-  try { data = what.kind === "goal" ? await drawGoalCard(what.year, shareFormat) : what.kind === "profile" ? await drawProfileCard(what.p, what.covers, shareFormat) : await drawGameCard(g, shareFormat); }
+  try { data = what.kind === "list" ? await drawListCard(what.list, shareFormat, what.by) : what.kind === "goal" ? await drawGoalCard(what.year, shareFormat) : what.kind === "profile" ? await drawProfileCard(what.p, what.covers, shareFormat) : await drawGameCard(g, shareFormat); }
   catch (_) { data = null; }
   const prev = body.querySelector("#sh-prev");
   if (!prev) return;
@@ -3174,6 +3201,7 @@ async function openShareCard(what, back) {
   const go = body.querySelector("#sh-go"), save = body.querySelector("#sh-save");
   go.disabled = save.disabled = false;
   const text = g ? `${g.title}${g.rating ? ` ${starsText(g.rating)}` : ""} no Zerei`
+    : what.kind === "list" ? `${what.list.name}: ${what.by ? `lista de @${what.by.handle}` : "minha lista"} no Zerei`
     : what.kind === "profile" ? (what.p.handle ? `Me siga no Zerei: @${what.p.handle}` : "Minha estante no Zerei")
     : `Minha meta de ${what.year} no Zerei`;
   go.onclick = async () => {
@@ -3234,8 +3262,9 @@ async function publishProfile() {
     color: profile.color || "#FFD21F", photo: myPublicPhoto(), favPlatform: profile.favPlatform || "",
     favGame: fav ? { title: fav.title, cover: safeImg(fav.coverRemote) } : null,
     goal: goal ? { year: y, games: goal.games, done: doneIn(y).length } : null,
-    stats: publicStats(), updatedAt: Date.now()
+    stats: publicStats(), shelf: !!profile.shelfPublic, updatedAt: Date.now()
   });
+  await publishShelf().catch(() => {});
 }
 let socialTimer;
 function scheduleSocial() {
@@ -3315,7 +3344,8 @@ function postHTML(r, prof, likes, opts = {}) {
     ${r.text ? `<div class="post-text ${r.spoiler ? "is-spoiler" : ""}" ${r.spoiler ? `data-spoiler` : ""}>
       ${r.spoiler ? `<span class="spoiler-tag">Contém spoiler. Toque para ler</span>` : ""}<p>${esc(r.text)}</p></div>` : ""}
     <footer class="post-foot">
-      <button class="like ${mine ? "is-on" : ""}" data-like="${esc(r.id)}" aria-pressed="${mine}">${HEART}<span>${n || ""}</span></button>
+      <span class="post-acts"><button class="like ${mine ? "is-on" : ""}" data-like="${esc(r.id)}" aria-pressed="${mine}">${HEART}<span>${n || ""}</span></button>
+      ${opts.noCmt ? "" : `<button class="like cmt-btn" data-cmt="${esc(r.id)}" aria-label="Comentários">${BUBBLE}<span>${commentCount(r.id) || ""}</span></button>`}</span>
       ${r.uid === auth.uid ? `<button class="post-edit" data-edit="${esc(r.id)}">${PENCIL}Editar</button>` : ""}
       ${opts.hideUser ? `<span class="post-time">${ago(r.at)}</span>` : ""}
     </footer>
@@ -3338,6 +3368,7 @@ function wirePosts(root, refresh) {
     catch (_) { toast("Não deu para curtir agora"); }
   });
   root.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editMyReview(b.dataset.edit, refresh));
+  root.querySelectorAll("[data-cmt]").forEach(b => b.onclick = () => openComments(b.dataset.cmt, refresh || (() => { closeSheet(); renderNet(); })));
   root.querySelectorAll("[data-more]").forEach(b => b.onclick = () => {
     const card = b.closest(".post");
     openPostMenu(card.dataset.rid, card.dataset.uid, refresh);
@@ -3363,6 +3394,7 @@ function openPostMenu(rid, uid, back) {
     if (!pd.dataset.armed) { pd.dataset.armed = "1"; pd.textContent = "Toque de novo para tirar da rede"; return; }
     try {
       await dbDel(`reviews/${rid}`);
+      dbDel(`comments/${rid}`).catch(() => {});
       const g = games.find(x => `${auth.uid}_${keyOf(x.title)}` === rid);
       if (g) { g.shared = false; saveGames(); }
       toast("Avaliação tirada da rede. Ela continua na sua estante.");
@@ -3427,7 +3459,7 @@ async function editMyReview(rid, back) {
 
 /* --- Aba Rede --- */
 let netSeg = "recent", netSearch = "";
-async function loadLikes() { try { return (await dbGet("likes")) || {}; } catch (_) { return {}; } }
+async function loadLikes() { const [l] = await Promise.all([dbGet("likes").catch(() => null), loadComments()]); return l || {}; }
 async function renderNet() {
   const box = $("#net");
   if (!box) return;
@@ -3596,11 +3628,11 @@ async function openNetProfile(uid, back) {
   showSheet(`<div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button></div>
     <div id="np">${skeletonRows(4)}</div>`, back, () => openNetProfile(uid, back));
   const box = body.querySelector("#np");
-  let p, revs, likes, fol;
+  let p, revs, likes, fol, nlists;
   try {
     profCache.delete(uid);
-    [p, revs, likes, fol] = await Promise.all([getProfile(uid), dbGet("reviews", { orderBy: q("uid"), equalTo: q(uid) }), loadLikes(),
-      uid === auth.uid ? null : dbGet(`following/${auth.uid}/${uid}`)]);
+    [p, revs, likes, fol, nlists] = await Promise.all([getProfile(uid), dbGet("reviews", { orderBy: q("uid"), equalTo: q(uid) }), loadLikes(),
+      uid === auth.uid ? null : dbGet(`following/${auth.uid}/${uid}`), dbGet("lists", { orderBy: q("uid"), equalTo: q(uid) }).catch(() => null)]);
   } catch (_) { if (box) box.innerHTML = `<p class="hero-sub">Não deu para abrir esse perfil agora.</p>`; return; }
   if (!box) return;
   if (!p) { box.innerHTML = `<p class="hero-sub">Esse perfil não existe mais.</p>`; return; }
@@ -3618,6 +3650,7 @@ async function openNetProfile(uid, back) {
           : `<button class="btn ${fol ? "btn-ghost" : "btn-primary"}" id="np-follow">${fol ? "Seguindo" : "Seguir"}</button>`}
         <button class="btn btn-ghost" id="np-share">${SHARE}Compartilhar</button>
       </div>
+      ${me ? "" : `<button class="btn btn-ghost" id="np-cmp" style="width:100%;margin-top:10px">${CMP_ICO}Comparar estantes</button>`}
     </div>
     <div class="stats-grid">
       <div class="stat"><b>${s.games || 0}</b><span>jogos</span></div>
@@ -3629,6 +3662,12 @@ async function openNetProfile(uid, back) {
     </div>
     ${p.favGame ? `<div class="field"><span class="field-label">Jogo favorito</span>
       <div class="np-fav">${coverHTML([safeImg(p.favGame.cover)].filter(Boolean), p.favGame.title)}<b>${esc(p.favGame.title)}</b></div></div>` : ""}
+    ${(() => { const ls = Object.entries(nlists || {}).map(([id, v]) => ({ id, ...v })).filter(l => l && l.name).sort((a, b) => (b.at || 0) - (a.at || 0));
+      return ls.length || me ? `<div class="field"><span class="field-label">Listas <small class="count">${ls.length}</small></span>
+      ${ls.length ? `<ul class="rows" style="padding:0">${ls.map(l => `<li><button class="row list-row" data-nl="${esc(l.id)}">
+        ${listStackHTML(toArr(l.items), it => [safeImg(it.cover)].filter(Boolean))}
+        <div><div class="row-title">${esc(l.name)}</div><div class="row-sub">${l.count || toArr(l.items).length} jogos${l.ranked ? ", ranking" : ""}</div></div>
+        <span class="row-chev">${ICON.chev}</span></button></li>`).join("")}</ul>` : `<p class="hero-sub" style="margin:0">Nenhuma lista no perfil. <button class="link-btn" id="np-lists" style="margin:0">Criar uma</button></p>`}</div>` : ""; })()}
     <div class="field"><span class="field-label">Avaliações</span>
       <div class="net-list" id="np-list">${items.length ? items.map(r => postHTML(r, p, likes, { hideUser: true })).join("") : `<p class="hero-sub" style="margin:0">${me ? "Você ainda não publicou nenhuma avaliação." : "Nenhuma avaliação publicada ainda."}</p>`}</div>
     </div>`;
@@ -3641,6 +3680,11 @@ async function openNetProfile(uid, back) {
   };
   const ed = box.querySelector("#np-edit");
   if (ed) ed.onclick = () => openProfile();
+  const cmp = box.querySelector("#np-cmp");
+  if (cmp) cmp.onclick = () => openCompare(uid, p, reopen);
+  const npl = box.querySelector("#np-lists");
+  if (npl) npl.onclick = () => openLists(reopen);
+  box.querySelectorAll("[data-nl]").forEach(b => b.onclick = () => openNetList({ ...nlists[b.dataset.nl] }, p, reopen));
   const fb = box.querySelector("#np-follow");
   if (fb) fb.onclick = async () => {
     fb.disabled = true;
@@ -3689,6 +3733,9 @@ async function leaveNetwork() {
   const revs = await dbGet("reviews", { orderBy: q("uid"), equalTo: q(auth.uid) }).catch(() => ({}));
   await Promise.allSettled(Object.keys(revs || {}).map(id => dbDel(`reviews/${id}`)));
   await dbDel(`following/${auth.uid}`).catch(() => {});
+  await dbDel(`shelves/${auth.uid}`).catch(() => {});
+  await Promise.allSettled(lists.filter(l => l.public).map(l => dbDel(`lists/${auth.uid}_${l.id}`)));
+  lists.forEach(l => { l.public = false; }); saveLists();
   await dbDel(`profiles/${auth.uid}`).catch(() => {});
   if (socialMe && socialMe.handle) await dbDel(`handles/${socialMe.handle}`).catch(() => {});
   games.forEach(g => { delete g.shared; });
@@ -3703,6 +3750,9 @@ function socialSettingsHTML() {
       <div class="setting"><button class="setting-btn" id="s-net-me">
         <div><div class="setting-name">Meu perfil público</div><div class="setting-desc">@${esc(socialMe.handle)}</div></div>
         <span class="row-chev">${ICON.chev}</span></button></div>
+      <div class="setting"><div class="switch-row">
+        <div><div class="setting-name">Estante visível para comparar</div><div class="setting-desc">Outras pessoas podem comparar a estante delas com a sua (jogos, status, notas e horas).</div></div>
+        <button class="switch ${profile.shelfPublic ? "is-on" : ""}" id="s-shelf" role="switch" aria-checked="${!!profile.shelfPublic}" aria-label="Estante visível para comparar"></button></div></div>
       <div class="setting"><button class="setting-btn" id="s-net-blocked">
         <div><div class="setting-name">Pessoas bloqueadas</div><div class="setting-desc">${blocked.length ? `${blocked.length} ${blocked.length === 1 ? "pessoa" : "pessoas"}. Toque para desbloquear todas.` : "Ninguém bloqueado"}</div></div>
         </button></div>
@@ -3714,6 +3764,13 @@ function socialSettingsHTML() {
 }
 function wireSocialSettings() {
   const me = $("#s-net-me"); if (me) me.onclick = () => openNetProfile(auth.uid);
+  const sh = $("#s-shelf");
+  if (sh) sh.onclick = async () => {
+    profile.shelfPublic = !profile.shelfPublic; saveProfile();
+    sh.classList.toggle("is-on", profile.shelfPublic); sh.setAttribute("aria-checked", profile.shelfPublic);
+    try { await publishProfile(); toast(profile.shelfPublic ? "Sua estante agora pode ser comparada" : "Sua estante não aparece mais para comparar"); }
+    catch (_) { toast("Não deu para atualizar agora"); }
+  };
   const bl = $("#s-net-blocked");
   if (bl) bl.onclick = () => { if (!blocked.length) return; blocked = []; store.save("backlog.blocked.v1", blocked); toast("Todas as pessoas foram desbloqueadas"); renderSettings(); };
   const lv = $("#s-net-leave");
@@ -3877,7 +3934,9 @@ const BELL = '<svg viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.
 const N_ICON = {
   update: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19h14"/></svg>',
   like: '<svg viewBox="0 0 24 24"><path d="M12 20s-7.5-4.4-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.6-7.5 10-7.5 10z" fill="currentColor"/></svg>',
-  goal: '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>'
+  goal: '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
+  comment: '<svg viewBox="0 0 24 24"><path d="M5 18.5V7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5v6a2.5 2.5 0 0 1-2.5 2.5H9z"/></svg>',
+  wrap: '<svg viewBox="0 0 24 24"><path d="M12 3l2.2 5.6L20 9.3l-4.4 3.9 1.3 5.8L12 16l-4.9 3 1.3-5.8L4 9.3l5.8-.7z"/></svg>'
 };
 const saveNotifs = () => { store.save("backlog.notifs.v1", notifs); renderBell(); };
 function addNotif(n) {
@@ -3911,6 +3970,7 @@ async function checkNotifs() {
     }
     // Meta do ano batida
     const y = new Date().getFullYear(), goal = profile.goals && profile.goals[y];
+    if (new Date().getMonth() === 11 && doneIn(y).length) addNotif({ id: `wrap_${y}`, type: "wrap", text: `Sua retrospectiva de ${y} está pronta`, sub: `${doneIn(y).length} zerados. Veja seu ano nos jogos e compartilhe.`, act: { kind: "wrap", year: y } });
     if (goal && doneIn(y).length >= goal.games) addNotif({ id: `goal_${y}_${goal.games}`, type: "goal", text: `Você bateu a meta de ${y}!`, sub: `${doneIn(y).length} jogos zerados de ${goal.games}`, act: { kind: "goal" } });
 
     if (!socialReady()) return;
@@ -3949,6 +4009,23 @@ async function checkNotifs() {
         .forEach(([id, r]) => addNotif({ id: `rev_${id}_${r.at}`, type: "review", text: `@${r.handle} avaliou ${r.game}`, sub: r.rating ? starsText(r.rating) : (r.text || "").slice(0, 80), cover: safeImg(r.cover), act: { kind: "game", gameKey: r.gameKey, title: r.game, cover: safeImg(r.cover) } }));
     }
     notifSeen.reviewsAt = Date.now();
+    // Comentários nas suas avaliações e nas conversas em que você comentou
+    const cms = await loadComments();
+    if (notifSeen.cmtAt) {
+      const found = [];
+      Object.entries(cms || {}).forEach(([rid, list]) => {
+        const all = Object.values(list || {}).filter(c => c && c.uid);
+        const mineRev = rid.startsWith(auth.uid + "_"), joined = all.some(c => c.uid === auth.uid);
+        if (!mineRev && !joined) return;
+        all.filter(c => c.uid !== auth.uid && c.at > notifSeen.cmtAt && !blocked.includes(c.uid)).forEach(c => found.push({ rid, c, mineRev }));
+      });
+      for (const { rid, c, mineRev } of found.sort((a, b) => a.c.at - b.c.at)) {
+        let gname = "";
+        if (mineRev) { const g = games.find(x => keyOf(x.title) === rid.slice(auth.uid.length + 1)); gname = g ? g.title : ""; }
+        addNotif({ id: `cmt_${rid}_${c.at}_${c.uid}`, type: "comment", text: mineRev ? `@${c.handle} comentou na sua avaliação${gname ? ` de ${gname}` : ""}` : `@${c.handle} também comentou numa avaliação`, sub: (c.text || "").slice(0, 100), act: { kind: "comments", rid } });
+      }
+    }
+    notifSeen.cmtAt = Date.now();
   } finally {
     store.save("backlog.notifSeen.v1", notifSeen);
     notifChecking = false;
@@ -3982,6 +4059,8 @@ function openNotifs() {
     else if (a.kind === "game" && socialReady()) openNetGame(a.gameKey, a.title, a.cover, back);
     else if (a.kind === "update") { if (updateInfo) { updateState = updateState === "ready" ? "ready" : "idle"; openUpdateSheet(); } else { go("settings"); closeSheet(); } }
     else if (a.kind === "goal") openGoals();
+    else if (a.kind === "comments" && socialReady()) openComments(a.rid, back);
+    else if (a.kind === "wrap") { closeSheet(); openWrap(a.year); }
   });
   const clr = body.querySelector("#n-clear");
   if (clr) clr.onclick = () => { notifs = []; saveNotifs(); openNotifs(); };
@@ -4261,8 +4340,945 @@ function accountAchHTML() {
     : `<p class="status-line" style="padding-top:0">Importe os jogos das suas contas em Ajustes > Contas de jogos para ver o progresso aqui.</p>`}`;
 }
 
+/* =========================================================
+   Cronômetro de sessão
+   O início fica salvo, então fechar o app não perde o tempo.
+   ========================================================= */
+let session = store.load("backlog.session.v1", null);          // { gameId, title, start }
+const PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor" stroke="none"/></svg>';
+const STOP = '<svg viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.2" fill="currentColor" stroke="none"/></svg>';
+const fmtClock = ms => {
+  const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? `${h}:${String(m).padStart(2, "0")}` : String(m)) + ":" + String(x).padStart(2, "0");
+};
+const fmtDur = min => { min = Math.max(0, Math.round(min)); const h = Math.floor(min / 60), m = min % 60; return h ? `${h} h${m ? ` ${m} min` : ""}` : `${m} min`; };
+const saveSession = () => store.save("backlog.session.v1", session);
+const sessionGame = () => session && games.find(g => g.id === session.gameId);
+
+function startSession(g) {
+  if (session && session.gameId !== g.id && sessionGame()) {
+    toast(`Antes, termine a sessão de ${session.title}`);
+    openStopSession(() => openGame(g));
+    return false;
+  }
+  session = { gameId: g.id, title: g.title, start: Date.now() };
+  saveSession();
+  if (g.status === "backlog" || g.status === "dropped") {
+    logEvent(g, "status", { to: "playing" });
+    g.status = "playing"; g.updatedAt = Date.now(); saveGames();
+  }
+  renderSessionBar(); renderLibrary();
+  toast(`Cronômetro ligado. Bom jogo!`);
+  return true;
+}
+function sessionBtnHTML(g) {
+  const on = session && session.gameId === g.id;
+  return `<button class="btn ${on ? "btn-primary sess-on" : "btn-ghost"} sess-btn" id="sess" data-gid="${esc(g.id)}">
+    ${on ? STOP : PLAY}<span>${on ? `Parar sessão <b class="sess-clock" data-clock>${fmtClock(Date.now() - session.start)}</b>` : "Jogar agora"}</span></button>`;
+}
+function wireSessionBtn(root, g, back, onStart) {
+  const b = root.querySelector("#sess");
+  if (!b) return;
+  b.onclick = () => {
+    if (session && session.gameId === g.id) { openStopSession(back); return; }
+    if (startSession(g)) { b.outerHTML = sessionBtnHTML(g); wireSessionBtn(root, g, back, onStart); onStart && onStart(); }
+  };
+}
+
+/* Barrinha fixa enquanto o cronômetro roda */
+const sbar = document.createElement("button");
+sbar.className = "sbar"; sbar.id = "sbar"; sbar.hidden = true;
+document.body.appendChild(sbar);
+sbar.onclick = e => {
+  const g = sessionGame();
+  if (!g) return;
+  if (e.target.closest("[data-sstop]")) openStopSession();
+  else openGame(g);
+};
+function renderSessionBar() {
+  const g = sessionGame();
+  if (session && !g) { session = null; saveSession(); }
+  sbar.hidden = !g;
+  document.body.classList.toggle("has-sbar", !!g);
+  if (!g) return;
+  sbar.innerHTML = `<span class="sbar-cover">${coverHTML(gameCovers(g), g.title)}</span>
+    <span class="sbar-text"><small><i class="sbar-dot"></i>Jogando agora</small><b>${esc(g.title)}</b></span>
+    <span class="sbar-clock" data-clock>${fmtClock(Date.now() - session.start)}</span>
+    <span class="sbar-stop" data-sstop role="button" aria-label="Parar sessão">${STOP}</span>`;
+}
+setInterval(() => {
+  if (!session || document.hidden) return;
+  const t = fmtClock(Date.now() - session.start);
+  document.querySelectorAll("[data-clock]").forEach(el => { el.textContent = t; });
+}, 1000);
+
+function openStopSession(back) {
+  const g = sessionGame();
+  if (!g) { session = null; saveSession(); renderSessionBar(); return; }
+  const min = Math.max(1, Math.round((Date.now() - session.start) / 60000));
+  const h0 = Math.floor(min / 60), m0 = min % 60;
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button></div>
+    <div class="hero">${coverHTML(gameCovers(g), g.title)}<div><h2 class="hero-title">${esc(g.title)}</h2>
+      <div class="hero-sub">Sessão começou às ${new Date(session.start).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}${Date.now() - session.start > 86400000 ? `, ${fmtDay(session.start)}` : ""}</div></div></div>
+    <div class="sess-big"><b>${fmtDur(min)}</b><span>de jogo nesta sessão</span></div>
+    ${min > 360 ? `<p class="panel-note" style="margin-top:0">Esqueceu o cronômetro ligado? Ajuste o tempo antes de salvar.</p>` : ""}
+    <div class="field"><span class="field-label">Tempo jogado</span>
+      <div class="dur-row">
+        <label class="dur"><input class="text-input" id="s-h" type="number" inputmode="numeric" min="0" max="99" value="${h0}"><span>h</span></label>
+        <label class="dur"><input class="text-input" id="s-m" type="number" inputmode="numeric" min="0" max="59" value="${m0}"><span>min</span></label>
+      </div>
+      <p class="panel-note" id="s-total"></p>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" id="s-save">Somar às horas do jogo</button>
+      <button class="btn btn-ghost" id="s-keep">${PLAY}Continuar jogando</button>
+      <button class="link-btn" id="s-discard" style="justify-self:center;color:var(--accent-2)">Descartar esta sessão</button>
+    </div>`, back);
+  const hi = body.querySelector("#s-h"), mi = body.querySelector("#s-m"), tot = body.querySelector("#s-total");
+  const minutes = () => Math.max(0, (parseInt(hi.value, 10) || 0) * 60 + (parseInt(mi.value, 10) || 0));
+  const upd = () => { tot.textContent = `O jogo passa de ${fmtH(Number(g.hours) || 0)} h para ${fmtH((Number(g.hours) || 0) + minutes() / 60)} h.`; };
+  hi.oninput = mi.oninput = upd; upd();
+  const end = () => { session = null; saveSession(); renderSessionBar(); };
+  body.querySelector("#s-save").onclick = () => {
+    const m = minutes();
+    if (!m) { toast("Coloque quanto tempo você jogou"); return; }
+    g.hours = String(Math.round(((Number(g.hours) || 0) + m / 60) * 10) / 10);
+    logEvent(g, "session", { min: m });
+    g.updatedAt = Date.now();
+    end(); saveGames(); renderLibrary();
+    syncReview(g).catch(() => {});
+    toast(`${fmtDur(m)} somados em ${g.title}`);
+    back ? back() : closeSheet();
+  };
+  body.querySelector("#s-keep").onclick = () => back ? back() : closeSheet();
+  const dc = body.querySelector("#s-discard");
+  dc.onclick = () => {
+    if (!dc.dataset.armed) { dc.dataset.armed = "1"; dc.textContent = "Toque de novo para descartar"; return; }
+    end(); toast("Sessão descartada"); back ? back() : closeSheet();
+  };
+}
+
+/* =========================================================
+   Listas personalizadas
+   ========================================================= */
+let lists = store.load("backlog.lists.v1", []);
+const saveLists = () => { store.save("backlog.lists.v1", lists); scheduleSync(); };
+const LIST_ICO = '<svg viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.6" cy="6.5" r="1.2" fill="currentColor"/><circle cx="4.6" cy="12" r="1.2" fill="currentColor"/><circle cx="4.6" cy="17.5" r="1.2" fill="currentColor"/></svg>';
+const UP = '<svg viewBox="0 0 24 24"><path d="m6 14 6-6 6 6"/></svg>';
+const DOWN = '<svg viewBox="0 0 24 24"><path d="m6 10 6 6 6-6"/></svg>';
+const listItemFrom = g => ({ key: keyOf(g.title), title: g.title, gid: g.id || null, cover: safeImg(g.coverRemote) || safeImg(toArr(g.coverAlts)[0]) || "" });
+const listCovers = it => { const g = it.gid && games.find(x => x.id === it.gid); return g ? gameCovers(g) : [it.cover].filter(Boolean); };
+const itemGame = it => (it.gid && games.find(x => x.id === it.gid)) || games.find(x => keyOf(x.title) === it.key);
+function listStackHTML(items, coversOf) {
+  const c = items.slice(0, 3);
+  return `<span class="lstack">${c.length ? c.map(it => `<span>${coverHTML(coversOf(it), it.title)}</span>`).join("") : `<span class="lstack-empty">${LIST_ICO}</span>`}</span>`;
+}
+function touchList(l) { l.updatedAt = Date.now(); saveLists(); if (l.public) publishList(l).catch(() => {}); }
+
+async function publishList(l) {
+  if (!socialReady()) return;
+  const path = `lists/${auth.uid}_${l.id}`;
+  if (!l.public) return dbDel(path).catch(() => {});
+  await dbPut(path, {
+    uid: auth.uid, handle: socialMe.handle, name: l.name.slice(0, 60), desc: (l.desc || "").slice(0, 300), ranked: !!l.ranked,
+    items: l.items.slice(0, 100).map(it => ({ key: it.key, title: it.title, cover: safeImg(it.cover) || (() => { const g = itemGame(it); return g ? safeImg(g.coverRemote) : ""; })() })),
+    count: l.items.length, at: l.updatedAt || Date.now()
+  });
+}
+
+function openLists(back) {
+  listEditing = false;
+  const sorted = [...lists].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button>
+      <button class="btn btn-primary btn-sm" id="l-new">${ICON.plus}Nova lista</button></div>
+    <h2 class="hero-title" style="margin-top:18px">Minhas listas</h2>
+    <p class="hero-sub">Monte listas do seu jeito, tipo “Melhores RPGs” ou “Para jogar com a namorada”, e publique no seu perfil se quiser.</p>
+    ${sorted.length ? `<ul class="rows" style="padding:0">${sorted.map(l => `<li><button class="row list-row" data-lid="${esc(l.id)}">
+        ${listStackHTML(l.items, listCovers)}
+        <div><div class="row-title">${esc(l.name)}</div>
+        <div class="row-sub">${l.items.length} ${l.items.length === 1 ? "jogo" : "jogos"}${l.public ? ", no seu perfil" : ", só você vê"}${l.ranked ? ", ranking" : ""}</div></div>
+        <span class="row-chev">${ICON.chev}</span></button></li>`).join("")}</ul>`
+    : `<div class="panel" style="text-align:center"><p class="hero-sub" style="margin:0 0 14px">Você ainda não tem listas.</p>
+       <button class="btn btn-primary" id="l-new2">Criar minha primeira lista</button></div>`}`, back);
+  const reopen = () => openLists(back);
+  const nw = () => openListEditor(null, reopen);
+  body.querySelector("#l-new").onclick = nw;
+  const n2 = body.querySelector("#l-new2"); if (n2) n2.onclick = nw;
+  body.querySelectorAll("[data-lid]").forEach(b => b.onclick = () => openList(lists.find(l => l.id === b.dataset.lid), reopen));
+}
+
+function openListEditor(l, back, withGame) {
+  const isNew = !l;
+  const d = l ? { ...l } : { name: "", desc: "", ranked: false, public: socialReady() };
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${ICON.back}</button>
+      ${isNew ? "" : `<button class="btn btn-danger" id="le-del">Apagar</button>`}</div>
+    <h2 class="hero-title" style="margin-top:18px">${isNew ? "Nova lista" : "Editar lista"}</h2>
+    <div class="field"><label class="field-label" for="le-name">Nome</label>
+      <input class="text-input" id="le-name" maxlength="60" placeholder="Ex.: Meus 10 RPGs favoritos" value="${esc(d.name)}"></div>
+    <div class="field"><label class="field-label" for="le-desc">Descrição <small class="count">opcional</small></label>
+      <textarea class="review" id="le-desc" maxlength="300" style="min-height:90px" placeholder="Conte do que se trata a lista">${esc(d.desc || "")}</textarea></div>
+    <div class="panel" style="display:grid;gap:16px">
+      <div class="switch-row"><div><b>Ranking numerado</b><span>Mostra 1, 2, 3… e dá para mudar a ordem.</span></div>
+        <button class="switch ${d.ranked ? "is-on" : ""}" id="le-rank" role="switch" aria-checked="${!!d.ranked}" aria-label="Ranking numerado"></button></div>
+      ${socialReady() ? `<div class="switch-row"><div><b>Mostrar no meu perfil</b><span>Quem abrir seu perfil na Rede vê esta lista.</span></div>
+        <button class="switch ${d.public ? "is-on" : ""}" id="le-pub" role="switch" aria-checked="${!!d.public}" aria-label="Mostrar no meu perfil"></button></div>`
+      : `<p class="panel-note" style="margin:0">Entre na Rede para poder mostrar suas listas no perfil.</p>`}
+    </div>
+    <div class="actions"><button class="btn btn-primary" id="le-save">${isNew ? "Criar lista" : "Salvar"}</button></div>`, back);
+  const sw = (id, key) => { const b = body.querySelector(id); if (b) b.onclick = () => { d[key] = !d[key]; b.classList.toggle("is-on", d[key]); b.setAttribute("aria-checked", d[key]); }; };
+  sw("#le-rank", "ranked"); sw("#le-pub", "public");
+  const name = body.querySelector("#le-name");
+  if (isNew) setTimeout(() => name.focus(), 250);
+  body.querySelector("#le-save").onclick = () => {
+    const nm = name.value.trim();
+    if (!nm) { toast("Dê um nome para a lista"); name.focus(); return; }
+    const desc = body.querySelector("#le-desc").value.trim();
+    let target = l;
+    if (isNew) {
+      target = { id: "l" + Date.now().toString(36), name: nm, desc, ranked: d.ranked, public: !!d.public && socialReady(), items: withGame ? [listItemFrom(withGame)] : [], createdAt: Date.now() };
+      lists.push(target);
+    } else Object.assign(l, { name: nm, desc, ranked: d.ranked, public: !!d.public && socialReady() });
+    touchList(target);
+    if (!target.public) publishList(target).catch(() => {});
+    toast(isNew ? (withGame ? `Lista criada com ${withGame.title}` : "Lista criada") : "Lista salva");
+    if (isNew && !withGame) openListPicker(target, () => openList(target, back));
+    else if (withGame) back ? back() : closeSheet();
+    else openList(target, back);
+  };
+  const del = body.querySelector("#le-del");
+  if (del) del.onclick = () => {
+    if (!del.dataset.armed) { del.dataset.armed = "1"; del.textContent = "Toque de novo para apagar"; return; }
+    lists = lists.filter(x => x.id !== l.id);
+    markDeleted(l.id); saveLists();
+    if (socialReady()) dbDel(`lists/${auth.uid}_${l.id}`).catch(() => {});
+    toast("Lista apagada");
+    openLists();
+  };
+}
+
+let listEditing = false;
+function openList(l, back) {
+  if (!l) { openLists(); return; }
+  const self = () => openList(l, back);
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button>
+      <button class="btn btn-ghost btn-sm" id="l-edit">${PENCIL}Detalhes</button></div>
+    <h2 class="hero-title" style="margin-top:18px">${esc(l.name)}</h2>
+    <p class="hero-sub">${l.desc ? esc(l.desc) + "<br>" : ""}${l.items.length} ${l.items.length === 1 ? "jogo" : "jogos"}${l.public ? ", aparece no seu perfil" : ", só você vê"}</p>
+    <div class="actions two-btns" style="margin-top:14px">
+      <button class="btn btn-primary" id="l-add">${ICON.plus}Adicionar</button>
+      <button class="btn btn-ghost" id="l-share" ${l.items.length ? "" : "disabled"}>${SHARE}Compartilhar</button>
+    </div>
+    ${l.items.length > 1 ? `<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="link-btn" id="l-order" style="margin:0">${listEditing ? "Pronto" : l.ranked ? "Mudar a ordem" : "Organizar"}</button></div>` : ""}
+    <ol class="rows lrows ${l.ranked ? "is-ranked" : ""}" style="padding:0">${l.items.map((it, i) => `<li class="lrow">
+      ${l.ranked ? `<span class="lnum">${i + 1}</span>` : ""}
+      <button class="row" data-li="${i}">${coverHTML(listCovers(it), it.title)}
+        <div><div class="row-title">${esc(it.title)}</div><div class="row-sub">${(() => { const g = itemGame(it); return g ? esc(statusOf(g.status).label) + (g.rating ? " " + starsHTML(g.rating) : "") : "Fora da sua estante"; })()}</div></div></button>
+      ${listEditing ? `<span class="lctl">
+        <button class="icon-btn" data-up="${i}" ${i ? "" : "disabled"} aria-label="Subir">${UP}</button>
+        <button class="icon-btn" data-down="${i}" ${i < l.items.length - 1 ? "" : "disabled"} aria-label="Descer">${DOWN}</button>
+        <button class="icon-btn" data-rm="${i}" aria-label="Tirar da lista">${ICON.close}</button></span>` : ""}
+    </li>`).join("")}</ol>
+    ${!l.items.length ? `<p class="hero-sub" style="margin-top:18px">Lista vazia. Toque em “Adicionar”.</p>` : ""}`, back);
+  body.querySelector("#l-edit").onclick = () => openListEditor(l, self);
+  body.querySelector("#l-add").onclick = () => openListPicker(l, self);
+  const sh = body.querySelector("#l-share");
+  if (sh) sh.onclick = () => openShareCard({ kind: "list", list: { ...l, items: l.items.map(it => ({ ...it, covers: listCovers(it) })) }, by: null }, self);
+  const ord = body.querySelector("#l-order");
+  if (ord) ord.onclick = () => { listEditing = !listEditing; const y = body.scrollTop; self(); body.scrollTop = y; };
+  const move = (i, j) => { const [x] = l.items.splice(i, 1); l.items.splice(j, 0, x); touchList(l); const y = body.scrollTop; self(); body.scrollTop = y; };
+  body.querySelectorAll("[data-up]").forEach(b => b.onclick = () => move(+b.dataset.up, +b.dataset.up - 1));
+  body.querySelectorAll("[data-down]").forEach(b => b.onclick = () => move(+b.dataset.down, +b.dataset.down + 1));
+  body.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { l.items.splice(+b.dataset.rm, 1); touchList(l); const y = body.scrollTop; self(); body.scrollTop = y; });
+  body.querySelectorAll("[data-li]").forEach(b => b.onclick = () => {
+    if (listEditing) return;
+    const it = l.items[+b.dataset.li], g = itemGame(it);
+    g ? openGame(g, null, self) : openGame(null, { title: it.title, year: "", covers: [it.cover].filter(Boolean) }, self);
+  });
+}
+
+function openListPicker(l, back) {
+  let qtxt = "", online = [], onTok = 0;
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${ICON.back}</button>
+      <button class="btn btn-primary btn-sm" id="lp-done">Pronto</button></div>
+    <h2 class="hero-title" style="margin-top:18px">Adicionar à lista</h2>
+    <p class="hero-sub">${esc(l.name)}</p>
+    <form class="searchbar" id="lp-f" autocomplete="off" style="margin:14px 0 0">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="lp-q" type="search" placeholder="Buscar na estante ou fora dela" enterkeyhint="search"></form>
+    <div id="lp-list"></div>`, back);
+  const box = body.querySelector("#lp-list");
+  const has = key => l.items.some(it => it.key === key);
+  const rowHTML = (key, title, covers, sub, attr) => `<li><button class="row pick-row ${has(key) ? "is-on" : ""}" ${attr}>
+      ${coverHTML(covers, title)}<div><div class="row-title">${esc(title)}</div><div class="row-sub">${sub}</div></div>
+      <span class="pick">${ICON.check}</span></button></li>`;
+  const draw = () => {
+    const nq = norm(qtxt);
+    const mine = sortGames(games.filter(g => !nq || norm(g.title).includes(nq)));
+    const ext = online.filter(r => !games.some(g => norm(g.title) === norm(r.title)));
+    box.innerHTML = `${mine.length ? `<div class="section-label" style="margin:20px 0 4px">Da sua estante <small>${mine.length}</small></div>
+      <ul class="rows" style="padding:0">${mine.slice(0, 200).map(g => rowHTML(keyOf(g.title), g.title, gameCovers(g), esc(statusOf(g.status).label), `data-pg="${esc(g.id)}"`)).join("")}</ul>` : ""}
+      ${nq && ext.length ? `<div class="section-label" style="margin:20px 0 4px">Outros jogos</div>
+      <ul class="rows" style="padding:0">${ext.map((r, i) => rowHTML(keyOf(r.title), r.title, r.covers || [], esc(r.year || r.source || ""), `data-po="${i}"`)).join("")}</ul>` : ""}
+      ${!mine.length && !(nq && ext.length) ? `<p class="hero-sub" style="margin-top:18px">${nq ? "Buscando…" : "Sua estante está vazia. Busque um jogo acima."}</p>` : ""}`;
+  };
+  const toggle = it => {
+    const i = l.items.findIndex(x => x.key === it.key);
+    if (i >= 0) l.items.splice(i, 1); else l.items.push(it);
+    touchList(l);
+  };
+  box.onclick = e => {
+    const b = e.target.closest("[data-pg],[data-po]");
+    if (!b) return;
+    const it = b.dataset.pg ? listItemFrom(games.find(g => g.id === b.dataset.pg))
+      : (r => ({ key: keyOf(r.title), title: r.title, gid: null, cover: safeImg((r.covers || [])[0]) || "" }))(online.filter(r => !games.some(g => norm(g.title) === norm(r.title)))[+b.dataset.po]);
+    toggle(it);
+    b.classList.toggle("is-on", has(it.key));
+  };
+  const qi = body.querySelector("#lp-q");
+  let t;
+  const runOnline = async () => {
+    const tok = ++onTok;
+    if (!qtxt.trim()) { online = []; return draw(); }
+    try { const r = await searchGames(qtxt); if (tok === onTok) { online = r.slice(0, 10); draw(); } } catch (_) {}
+  };
+  qi.oninput = () => { qtxt = qi.value; draw(); clearTimeout(t); t = setTimeout(runOnline, 500); };
+  body.querySelector("#lp-f").onsubmit = e => { e.preventDefault(); qi.blur(); clearTimeout(t); runOnline(); };
+  body.querySelector("#lp-done").onclick = () => back ? back() : closeSheet();
+  draw();
+}
+
+function openAddToList(g, back) {
+  const key = keyOf(g.title);
+  const draw = () => {
+    showSheet(`
+      <div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${ICON.back}</button></div>
+      <h2 class="hero-title" style="margin-top:18px">Colocar em uma lista</h2>
+      <p class="hero-sub">${esc(g.title)}</p>
+      ${lists.length ? `<ul class="rows" style="padding:0">${lists.map(l => `<li><button class="row pick-row ${l.items.some(it => it.key === key) ? "is-on" : ""}" data-lid="${esc(l.id)}">
+        ${listStackHTML(l.items, listCovers)}<div><div class="row-title">${esc(l.name)}</div><div class="row-sub">${l.items.length} ${l.items.length === 1 ? "jogo" : "jogos"}</div></div>
+        <span class="pick">${ICON.check}</span></button></li>`).join("")}</ul>` : ""}
+      <div class="actions"><button class="btn ${lists.length ? "btn-ghost" : "btn-primary"}" id="al-new">${ICON.plus}Nova lista com este jogo</button></div>`, back);
+    body.querySelectorAll("[data-lid]").forEach(b => b.onclick = () => {
+      const l = lists.find(x => x.id === b.dataset.lid);
+      const i = l.items.findIndex(it => it.key === key);
+      if (i >= 0) { l.items.splice(i, 1); toast(`Tirado de ${l.name}`); } else { l.items.push(listItemFrom(g)); toast(`Colocado em ${l.name}`); }
+      touchList(l);
+      b.classList.toggle("is-on", i < 0);
+      const sub = b.querySelector(".row-sub"); if (sub) sub.textContent = `${l.items.length} ${l.items.length === 1 ? "jogo" : "jogos"}`;
+    });
+    body.querySelector("#al-new").onclick = () => openListEditor(null, () => openAddToList(g, back), g);
+  };
+  draw();
+}
+
+/* Lista de outra pessoa (só leitura) */
+function openNetList(l, owner, back) {
+  const self = () => openNetList(l, owner, back);
+  const items = toArr(l.items);
+  showSheet(`
+    <div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button></div>
+    <h2 class="hero-title" style="margin-top:18px">${esc(l.name)}</h2>
+    <p class="hero-sub">${l.desc ? esc(l.desc) + "<br>" : ""}Lista de @${esc(l.handle)}, ${items.length} ${items.length === 1 ? "jogo" : "jogos"}</p>
+    <div class="actions two-btns" style="margin-top:14px">
+      <button class="btn btn-ghost" id="nl-copy">${ICON.plus}Copiar lista</button>
+      <button class="btn btn-ghost" id="nl-share">${SHARE}Compartilhar</button>
+    </div>
+    <ol class="rows lrows ${l.ranked ? "is-ranked" : ""}" style="padding:0">${items.map((it, i) => `<li class="lrow">
+      ${l.ranked ? `<span class="lnum">${i + 1}</span>` : ""}
+      <button class="row" data-ni="${i}">${coverHTML([safeImg(it.cover)].filter(Boolean), it.title)}
+        <div><div class="row-title">${esc(it.title)}</div><div class="row-sub">${games.some(g => keyOf(g.title) === it.key) ? "Está na sua estante" : "Toque para ver e adicionar"}</div></div>
+        <span class="row-chev">${ICON.chev}</span></button></li>`).join("")}</ol>`, back);
+  body.querySelectorAll("[data-ni]").forEach(b => b.onclick = () => {
+    const it = items[+b.dataset.ni], mine = games.find(g => keyOf(g.title) === it.key);
+    mine ? openGame(mine, null, self) : openNetGame(it.key, it.title, safeImg(it.cover), self);
+  });
+  body.querySelector("#nl-copy").onclick = () => {
+    const nl = { id: "l" + Date.now().toString(36), name: l.name, desc: l.desc ? `${l.desc}\n(lista de @${l.handle})` : `Lista de @${l.handle}`, ranked: !!l.ranked, public: false,
+      items: items.map(it => { const g = games.find(x => keyOf(x.title) === it.key); return g ? listItemFrom(g) : { key: it.key, title: it.title, gid: null, cover: safeImg(it.cover) }; }), createdAt: Date.now() };
+    lists.push(nl); touchList(nl);
+    toast("Lista copiada para as suas listas");
+  };
+  body.querySelector("#nl-share").onclick = () => openShareCard({ kind: "list", list: { ...l, items: items.map(it => ({ ...it, covers: [safeImg(it.cover)].filter(Boolean) })) }, by: owner }, self);
+}
+
+/* Cartão de compartilhar da lista */
+async function drawListCard(l, format, by) {
+  const W = 1080, H = format === "post" ? 1350 : 1920;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d");
+  try { await Promise.all([document.fonts.load("900 90px Archivo"), document.fonts.load("600 36px Archivo")]); } catch (_) {}
+  const c = cardColors();
+  const cols = format === "post" ? 5 : 3, maxRows = format === "post" ? 2 : 3;
+  const shown = toArr(l.items).slice(0, cols * maxRows);
+  const imgs = await Promise.all(shown.map(it => firstImage(it.covers || [it.cover])));
+  drawBackdrop(ctx, imgs.find(Boolean) || null, W, H);
+  drawBrand(ctx, 72, 124, c);
+  setFont(ctx, 800, 30); ctx.fillStyle = c.a; ctx.textAlign = "left";
+  ctx.fillText(l.ranked ? "RANKING" : "LISTA", 72, 232);
+  setFont(ctx, 900, format === "post" ? 84 : 100, "condensed"); ctx.fillStyle = "#F6F4EE";
+  const lh = format === "post" ? 86 : 100;
+  const tl = wrap(ctx, l.name, W - 144, 2);
+  tl.forEach((s, i) => ctx.fillText(s, 72, 232 + lh + i * lh));
+  let y = 232 + lh + (tl.length - 1) * lh + 20;
+  if (l.desc && format !== "post") {
+    setFont(ctx, 500, 36); ctx.fillStyle = "rgba(246,244,238,0.75)";
+    const dl = wrap(ctx, l.desc.split("\n")[0], W - 144, 2);
+    dl.forEach((s, i) => ctx.fillText(s, 72, y + 40 + i * 48)); y += 40 + dl.length * 48;
+  }
+  y += 50;
+  const all = toArr(l.items);
+  if (all.length <= (format === "post" ? 3 : 5)) {
+    // Poucos jogos: uma linha grande por jogo, com capa, número e nome
+    const bottom = H - 240, rowH = Math.min(format === "post" ? 300 : 330, (bottom - y) / all.length);
+    const cw2 = (rowH - 26) / 1.4, ch2 = rowH - 26;
+    const imgs2 = await Promise.all(all.map(it => firstImage(it.covers || [it.cover])));
+    all.forEach((it, i) => {
+      const yy = y + i * rowH;
+      let x = 72;
+      if (l.ranked) { setFont(ctx, 900, Math.min(150, rowH * .55), "extra-condensed"); ctx.fillStyle = c.a; ctx.textAlign = "center"; ctx.fillText(String(i + 1), 72 + 50, yy + ch2 / 2 + rowH * .2); ctx.textAlign = "left"; x += 120; }
+      ctx.save(); ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 30; ctx.shadowOffsetY = 14;
+      ctx.fillStyle = "#1f1f22"; rr(ctx, x, yy, cw2, ch2, 16); ctx.fill(); ctx.restore();
+      ctx.save(); rr(ctx, x, yy, cw2, ch2, 16); ctx.clip(); if (imgs2[i]) drawCover(ctx, imgs2[i], x, yy, cw2, ch2); ctx.restore();
+      setFont(ctx, 900, Math.min(64, rowH * .2), "condensed"); ctx.fillStyle = "#F6F4EE";
+      const tl2 = wrap(ctx, it.title, W - 72 - (x + cw2 + 36), 2);
+      const fs = Math.min(64, rowH * .2);
+      tl2.forEach((t, k) => ctx.fillText(t, x + cw2 + 36, yy + ch2 / 2 - (tl2.length - 1) * fs * .55 + k * fs * 1.05 + fs * .35));
+    });
+    if (by) {
+      const yb = H - 150;
+      ctx.strokeStyle = "rgba(246,244,238,0.15)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(72, yb - 36); ctx.lineTo(W - 72, yb - 36); ctx.stroke();
+      setFont(ctx, 800, 38); ctx.fillStyle = "#F6F4EE"; ctx.fillText(`Lista de @${by.handle}`, 72, yb + 50);
+    } else await drawFooter(ctx, W, H, c);
+    return cv.toDataURL("image/png");
+  }
+  const gap = 24, cw = (W - 144 - gap * (cols - 1)) / cols, ch = cw * 1.4;
+  shown.forEach((it, i) => {
+    const x = 72 + (i % cols) * (cw + gap), yy = y + Math.floor(i / cols) * (ch + gap);
+    ctx.save(); ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 30; ctx.shadowOffsetY = 14;
+    ctx.fillStyle = "#1f1f22"; rr(ctx, x, yy, cw, ch, 18); ctx.fill(); ctx.restore();
+    ctx.save(); rr(ctx, x, yy, cw, ch, 18); ctx.clip();
+    if (imgs[i]) drawCover(ctx, imgs[i], x, yy, cw, ch);
+    else { setFont(ctx, 800, 30, "condensed"); ctx.fillStyle = "#8a877f"; wrap(ctx, it.title, cw - 30, 4).forEach((s, k) => ctx.fillText(s, x + 15, yy + 48 + k * 34)); }
+    ctx.restore();
+    if (l.ranked) {
+      const r = format === "post" ? 30 : 38;
+      ctx.fillStyle = c.a; ctx.beginPath(); ctx.arc(x + r + 10, yy + r + 10, r, 0, Math.PI * 2); ctx.fill();
+      setFont(ctx, 900, r * 1.15, "condensed"); ctx.fillStyle = c.on; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(String(i + 1), x + r + 10, yy + r + 12); ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+    }
+  });
+  const rest = toArr(l.items).length - shown.length;
+  if (rest > 0) {
+    const yy = y + Math.ceil(shown.length / cols) * (ch + gap) + 24;
+    setFont(ctx, 700, 34); ctx.fillStyle = "rgba(246,244,238,0.7)"; ctx.fillText(`e mais ${rest} ${rest === 1 ? "jogo" : "jogos"}`, 72, yy + 20);
+  }
+  if (by) {
+    const yb = H - 150;
+    ctx.strokeStyle = "rgba(246,244,238,0.15)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(72, yb - 36); ctx.lineTo(W - 72, yb - 36); ctx.stroke();
+    setFont(ctx, 800, 38); ctx.fillStyle = "#F6F4EE"; ctx.fillText(`Lista de @${by.handle}`, 72, yb + 50);
+  } else await drawFooter(ctx, W, H, c);
+  return cv.toDataURL("image/png");
+}
+
+/* =========================================================
+   Comentários nas avaliações
+   ========================================================= */
+let allComments = {};
+const BUBBLE = '<svg viewBox="0 0 24 24"><path d="M5 18.5V7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5v6a2.5 2.5 0 0 1-2.5 2.5H9z"/></svg>';
+const SEND = '<svg viewBox="0 0 24 24"><path d="M4.5 12 20 4.5 15.5 20l-3-6.5z" fill="currentColor" stroke="none"/></svg>';
+const commentCount = rid => Object.values(allComments[rid] || {}).filter(c => c && c.uid && !blocked.includes(c.uid)).length;
+async function loadComments() { try { allComments = (await dbGet("comments")) || {}; } catch (_) {} return allComments; }
+
+async function openComments(rid, back) {
+  const self = () => openComments(rid, back);
+  showSheet(`<div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button></div>
+    <h2 class="hero-title" style="margin-top:18px">Comentários</h2><div id="cm">${skeletonRows(3)}</div>`, back, self);
+  const box = body.querySelector("#cm");
+  let r, cms, likes;
+  try { [r, cms, likes] = await Promise.all([dbGet(`reviews/${rid}`), dbGet(`comments/${rid}`), loadLikes()]); }
+  catch (_) { if (box.isConnected) box.innerHTML = `<p class="hero-sub">Não deu para abrir agora. Confira a internet.</p>`; return; }
+  if (!box.isConnected) return;
+  if (!r) { box.innerHTML = `<p class="hero-sub">Essa avaliação não existe mais.</p>`; return; }
+  allComments[rid] = cms || {};
+  const list = listOf(cms).sort((a, b) => a.at - b.at);
+  const profs = new Map(await Promise.all([...new Set([r.uid, ...list.map(c => c.uid)])].map(async u => [u, await getProfile(u)])));
+  if (!box.isConnected) return;
+  const myReview = r.uid === auth.uid;
+  box.innerHTML = `<div class="net-list">${postHTML({ id: rid, ...r }, profs.get(r.uid), likes, { noCmt: true })}</div>
+    <div class="cm-list">${list.length ? list.map(c => { const p = profs.get(c.uid); return `<div class="cm" data-cid="${esc(c.id)}">
+      <button class="cm-av" data-user="${esc(c.uid)}">${avatarFor(p || { handle: c.handle }, 34)}</button>
+      <div class="cm-body"><div class="cm-head"><button data-user="${esc(c.uid)}"><b>${esc((p && p.name) || c.handle)}</b></button><span>@${esc(c.handle)}, ${ago(c.at)}</span></div>
+        <p>${esc(c.text)}</p></div>
+      <button class="icon-btn post-more" data-cmore="${esc(c.id)}" data-cuid="${esc(c.uid)}" aria-label="Opções do comentário">${DOTS}</button></div>`; }).join("")
+    : `<p class="hero-sub cm-empty">Ninguém comentou ainda. Comece a conversa.</p>`}</div>
+    <form class="cm-form" id="cm-f" autocomplete="off">
+      <textarea class="text-input" id="cm-t" maxlength="500" rows="1" placeholder="${myReview ? "Responda quem comentou" : "Escreva um comentário"}"></textarea>
+      <button class="cm-send" type="submit" aria-label="Enviar">${SEND}</button></form>`;
+  wirePosts(box.querySelector(".net-list"), self);
+  box.querySelectorAll(".cm [data-user]").forEach(b => b.onclick = () => openNetProfile(b.dataset.user, self));
+  box.querySelectorAll("[data-cmore]").forEach(b => b.onclick = () => openCommentMenu(rid, b.dataset.cmore, b.dataset.cuid, myReview, self));
+  const f = box.querySelector("#cm-f"), ta = box.querySelector("#cm-t");
+  ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(140, ta.scrollHeight + 2) + "px"; };
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const text = ta.value.trim();
+    if (!text) return;
+    const btn = f.querySelector("button"); btn.disabled = true;
+    try { await dbPost(`comments/${rid}`, { uid: auth.uid, handle: socialMe.handle, text: text.slice(0, 500), at: Date.now() }); self(); setTimeout(() => { body.scrollTop = body.scrollHeight; }, 400); }
+    catch (_) { toast("Não deu para comentar agora. Tente de novo."); btn.disabled = false; }
+  };
+}
+function openCommentMenu(rid, cid, cuid, myReview, back) {
+  const mine = cuid === auth.uid;
+  showSheet(`<div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${ICON.back}</button></div>
+    <div class="actions" style="margin-top:22px">
+      <button class="btn btn-ghost" id="cmm-prof">Ver perfil</button>
+      ${mine || myReview ? `<button class="btn btn-danger" id="cmm-del">Apagar comentário</button>` : ""}
+      ${mine ? "" : `<span class="field-label" style="margin:14px 0 0">Denunciar este comentário</span>
+      <div class="seg" id="cmm-rep">${["Spam", "Ofensivo ou com ódio", "Spoiler", "Outro motivo"].map(x => `<button class="chip" data-v="${x}">${x}</button>`).join("")}</div>
+      <button class="btn btn-danger" id="cmm-block">Bloquear esta pessoa</button>`}
+    </div>`, back);
+  body.querySelector("#cmm-prof").onclick = () => openNetProfile(cuid, back);
+  const d = body.querySelector("#cmm-del");
+  if (d) d.onclick = async () => {
+    try { await dbDel(`comments/${rid}/${cid}`); toast("Comentário apagado"); } catch (_) { toast("Não deu para apagar agora"); }
+    back();
+  };
+  const rp = body.querySelector("#cmm-rep");
+  if (rp) rp.onclick = async e => {
+    const b = e.target.closest("[data-v]"); if (!b) return;
+    try { await dbPost("reports", { by: auth.uid, uid: cuid, rid, cid, reason: b.dataset.v, at: Date.now() }); toast("Denúncia enviada. Obrigado por avisar."); }
+    catch (_) { toast("Não deu para enviar a denúncia agora"); }
+    back();
+  };
+  const bl = body.querySelector("#cmm-block");
+  if (bl) bl.onclick = () => { if (!blocked.includes(cuid)) blocked.push(cuid); store.save("backlog.blocked.v1", blocked); toast("Pessoa bloqueada"); back(); };
+}
+
+/* =========================================================
+   Comparar estantes
+   ========================================================= */
+function shelfPayload() {
+  const items = {};
+  games.forEach(g => {
+    const k = keyOf(g.title);
+    if (items[k]) return;
+    const c = safeImg(g.coverRemote) || safeImg(toArr(g.coverAlts)[0]);
+    items[k] = { t: g.title.slice(0, 120), s: g.status, r: clampRating(g.rating) || 0, h: Math.round((Number(g.hours) || 0) * 10) / 10, p: g.platform || "", c: c.length < 400 ? c : "" };
+  });
+  return { at: Date.now(), items };
+}
+async function publishShelf() {
+  if (!socialReady()) return;
+  if (profile.shelfPublic) await dbPut(`shelves/${auth.uid}`, shelfPayload());
+  else await dbDel(`shelves/${auth.uid}`).catch(() => {});
+}
+async function openCompare(uid, p, back) {
+  const self = () => openCompare(uid, p, back);
+  if (!profile.shelfPublic) {
+    showSheet(`<div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${ICON.back}</button></div>
+      <h2 class="hero-title" style="margin-top:18px">Comparar estantes</h2>
+      <p class="hero-sub">Para comparar com @${esc(p.handle)}, sua estante precisa ficar visível na Rede: quais jogos você tem, o status, a nota e as horas. Suas análises e o que não foi publicado continuam só com você.</p>
+      <div class="actions"><button class="btn btn-primary" id="cp-on">Deixar visível e comparar</button></div>
+      <p class="panel-note">Dá para esconder de novo quando quiser em Ajustes > Rede.</p>`, back);
+    body.querySelector("#cp-on").onclick = async e => {
+      e.currentTarget.disabled = true;
+      profile.shelfPublic = true; saveProfile();
+      try { await publishShelf(); await publishProfile(); self(); }
+      catch (_) { toast("Não deu agora. Tente de novo."); e.currentTarget.disabled = false; }
+    };
+    return;
+  }
+  showSheet(`<div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${ICON.back}</button></div><div id="cp">${skeletonRows(4)}</div>`, back, self);
+  const box = body.querySelector("#cp");
+  let theirs;
+  try { publishShelf().catch(() => {}); theirs = await dbGet(`shelves/${uid}`); }
+  catch (_) { if (box.isConnected) box.innerHTML = `<p class="hero-sub">Não deu para comparar agora. Confira a internet.</p>`; return; }
+  if (!box.isConnected) return;
+  if (!theirs || !theirs.items) {
+    box.innerHTML = `<h2 class="hero-title" style="margin-top:18px">Comparar estantes</h2>
+      <p class="hero-sub">@${esc(p.handle)} ainda não deixou a estante visível para comparação. Quando deixar, a comparação aparece aqui.</p>`;
+    return;
+  }
+  const me = new Map(); games.forEach(g => { const k = keyOf(g.title); if (!me.has(k)) me.set(k, g); });
+  const them = new Map(Object.entries(theirs.items));
+  const common = [...me.keys()].filter(k => them.has(k));
+  const onlyMe = [...me.keys()].filter(k => !them.has(k));
+  const onlyThem = [...them.keys()].filter(k => !me.has(k));
+  const myS = publicStats();
+  const tv = [...them.values()];
+  const thS = { games: tv.length, done: tv.filter(x => x.s === "done").length, hours: Math.round(tv.reduce((a, x) => a + (x.h || 0), 0)) };
+  const tr = tv.filter(x => x.r); thS.avg = tr.length ? Math.round(tr.reduce((a, x) => a + x.r, 0) / tr.length * 10) / 10 : 0;
+  const bothRated = common.filter(k => me.get(k).rating && them.get(k).r);
+  const match = bothRated.length >= 2 ? Math.round(100 - bothRated.reduce((a, k) => a + Math.abs(clampRating(me.get(k).rating) - them.get(k).r), 0) / bothRated.length / 4.5 * 100) : null;
+  const bothDone = common.filter(k => me.get(k).status === "done" && them.get(k).s === "done").length;
+  const diff = myS.done - thS.done;
+  const verdict = diff === 0 ? `Empate: os dois zeraram ${myS.done} ${myS.done === 1 ? "jogo" : "jogos"}.`
+    : diff > 0 ? `Você zerou ${diff} ${diff === 1 ? "jogo" : "jogos"} a mais que @${esc(p.handle)}.` : `@${esc(p.handle)} zerou ${-diff} ${diff === -1 ? "jogo" : "jogos"} a mais que você.`;
+  const meP = { name: profile.name, handle: socialMe.handle, color: profile.color, photo: myPublicPhoto() };
+  const row = (label, a, b, fmt = x => x) => `<div class="cmp-row"><b class="${a > b ? "is-win" : ""}">${fmt(a)}</b><span>${label}</span><b class="${b > a ? "is-win" : ""}">${fmt(b)}</b></div>`;
+  let tab = "common";
+  const pill = (s, r) => `<span class="cmp-pill" style="--c:${STATUS_HEX[s] || "#888"}">${esc(statusOf(s).label)}${r ? ` ${fmtH(r)}★` : ""}</span>`;
+  const drawList = () => {
+    const el = box.querySelector("#cp-list");
+    const keys = tab === "common" ? common : tab === "me" ? onlyMe : onlyThem;
+    el.innerHTML = keys.length ? `<ul class="rows" style="padding:0">${keys.slice(0, 300).map(k => {
+      const g = me.get(k), t = them.get(k);
+      const covers = g ? gameCovers(g) : [safeImg(t.c)].filter(Boolean);
+      const title = g ? g.title : t.t;
+      const sub = tab === "common" ? `<span class="cmp-pills"><small>Você</small>${pill(g.status, g.rating)}<small>@${esc(p.handle)}</small>${pill(t.s, t.r)}</span>`
+        : tab === "me" ? pill(g.status, g.rating) : `${pill(t.s, t.r)}${t.h ? ` <small>${fmtH(t.h)} h</small>` : ""}`;
+      return `<li><button class="row" data-ck="${esc(k)}">${coverHTML(covers, title)}<div><div class="row-title">${esc(title)}</div><div class="row-sub">${sub}</div></div>
+        <span class="row-chev">${ICON.chev}</span></button></li>`; }).join("")}</ul>`
+      : `<p class="hero-sub" style="margin-top:14px">${tab === "common" ? "Nenhum jogo em comum ainda." : tab === "me" ? `Você não tem nenhum jogo que @${esc(p.handle)} não tenha.` : `@${esc(p.handle)} não tem nenhum jogo que você não tenha.`}</p>`;
+    el.querySelectorAll("[data-ck]").forEach(b => b.onclick = () => {
+      const k = b.dataset.ck, g = me.get(k), t = them.get(k);
+      g ? openGame(g, null, self) : openGame(null, { title: t.t, year: "", covers: [safeImg(t.c)].filter(Boolean) }, self);
+    });
+  };
+  box.innerHTML = `
+    <div class="cmp-head">
+      <div>${avatarFor(meP, 64)}<b>Você</b></div><span class="cmp-vs">vs</span><div>${avatarFor(p, 64)}<b>@${esc(p.handle)}</b></div>
+    </div>
+    <p class="cmp-verdict">${verdict}</p>
+    <div class="cmp-table">
+      ${row("jogos", myS.games, thS.games)}${row("zerados", myS.done, thS.done)}${row("horas", myS.hours, thS.hours, x => `${fmtN(x)} h`)}${row("nota média", myS.avg, thS.avg, x => x ? fmtH(x) : "–")}
+    </div>
+    <div class="cmp-facts">
+      <div><b>${common.length}</b><span>em comum</span></div>
+      <div><b>${bothDone}</b><span>os dois zeraram</span></div>
+      <div><b>${match === null ? "–" : match + "%"}</b><span>gosto parecido</span></div>
+    </div>
+    ${match === null ? `<p class="panel-note" style="text-align:center">O “gosto parecido” aparece quando vocês dois derem nota para pelo menos 2 jogos em comum.</p>` : ""}
+    <div class="segmented" id="cp-seg" style="margin:20px 0 0">
+      <button class="is-on" data-t="common">Em comum ${common.length}</button><button data-t="me">Só você ${onlyMe.length}</button><button data-t="them">Só @${esc(p.handle.length > 9 ? p.handle.slice(0, 8) + "…" : p.handle)} ${onlyThem.length}</button>
+    </div>
+    <div id="cp-list"></div>`;
+  box.querySelector("#cp-seg").onclick = e => {
+    const b = e.target.closest("[data-t]"); if (!b) return;
+    tab = b.dataset.t; box.querySelectorAll("#cp-seg button").forEach(x => x.classList.toggle("is-on", x === b)); drawList();
+  };
+  drawList();
+}
+
+/* =========================================================
+   Retrospectiva do ano (estilo stories)
+   Libera em dezembro; antes disso dá para ver uma prévia.
+   ========================================================= */
+let genreCache = store.load("backlog.genres.v1", {});
+const wrapReady = y => { const now = new Date(); return y < now.getFullYear() || (y === now.getFullYear() && now.getMonth() === 11); };
+const MONTHS_FULL = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const SKIP_GENRES = /acesso antecipado|early access|gratuito|free to play|indie|casual|massively|multijogador/i;
+async function gameGenres(g) {
+  const k = keyOf(g.title);
+  if (genreCache[k] && (genreCache[k].length || Date.now() - (genreCache[k + "@"] || 0) < 7 * 86400000)) return genreCache[k];
+  let id = g.steamId || (g.sources && g.sources.steam && g.sources.steam.id);
+  try {
+    if (!id) {
+      const r = await searchSteam(g.title);
+      const hit = r.find(x => norm(x.title) === norm(g.title)) || r.find(x => norm(x.title).startsWith(norm(g.title)) || norm(g.title).startsWith(norm(x.title)));
+      id = hit && hit.steamId;
+    }
+    let out = [];
+    if (id) {
+      const d = await getJSON(`https://store.steampowered.com/api/appdetails?appids=${id}&l=brazilian&cc=BR&filters=genres`);
+      out = toArr(d && d[id] && d[id].data && d[id].data.genres).map(x => x.description).filter(Boolean);
+    }
+    genreCache[k] = out; genreCache[k + "@"] = Date.now();
+    store.save("backlog.genres.v1", genreCache);
+    return out;
+  } catch (_) { return genreCache[k] || []; }
+}
+async function wrapData(y, onProgress) {
+  const done = doneIn(y).sort((a, b) => a.doneAt - b.doneAt);
+  const inYear = t => t && yearOf(t) === y;
+  const months = Array(12).fill(0); done.forEach(g => months[new Date(g.doneAt).getMonth()]++);
+  const topMonth = months.indexOf(Math.max(...months));
+  const plats = {}; done.forEach(g => { const p = g.platform || ""; if (p) plats[p] = (plats[p] || 0) + 1; });
+  const platList = Object.entries(plats).sort((a, b) => b[1] - a[1]);
+  const hours = Math.round(done.reduce((a, g) => a + (Number(g.hours) || 0), 0));
+  let sessionMin = 0, sessions = 0;
+  games.forEach(g => toArr(g.history).forEach(e => { if (e.type === "session" && inYear(e.t)) { sessionMin += e.min || 0; sessions++; } }));
+  const rated = done.filter(g => g.rating).sort((a, b) => b.rating - a.rating || (Number(b.hours) || 0) - (Number(a.hours) || 0));
+  const timed = done.filter(g => Number(g.hours) > 0).sort((a, b) => Number(b.hours) - Number(a.hours));
+  const added = games.filter(g => inYear(g.addedAt)).length;
+  const dropped = games.filter(g => toArr(g.history).some(e => e.type === "status" && e.to === "dropped" && inYear(e.t))).length;
+  // Gêneros dos jogos zerados (pela loja da Steam, quando acha o jogo)
+  const genres = {};
+  const pool = done.slice(-40);
+  let i = 0, finished = 0;
+  const worker = async () => { while (i < pool.length) { const g = pool[i++]; (await gameGenres(g)).filter(x => !SKIP_GENRES.test(x)).forEach(x => { genres[x] = (genres[x] || 0) + 1; }); finished++; onProgress && onProgress(finished / pool.length); } };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  const genreList = Object.entries(genres).sort((a, b) => b[1] - a[1]);
+  const goal = (profile.goals || {})[y];
+  return { y, done, months, topMonth, platList, hours, sessionMin, sessions, best: rated[0], longest: timed[0], fastest: timed.length > 1 ? timed[timed.length - 1] : null,
+    added, dropped, genreList, goal, preview: !wrapReady(y) };
+}
+
+const WRAP_BG = [
+  { bg: "#FFD21F", ink: "#0B0B0C", sub: "rgba(11,11,12,.72)" },
+  { bg: "#F03A2E", ink: "#FFFFFF", sub: "rgba(255,255,255,.8)" },
+  { bg: "#4C8DFF", ink: "#FFFFFF", sub: "rgba(255,255,255,.82)" },
+  { bg: "#2FBF71", ink: "#06210F", sub: "rgba(6,33,15,.75)" },
+  { bg: "#0B0B0C", ink: "#F6F4EE", sub: "rgba(246,244,238,.7)" },
+  { bg: "#8B5CF6", ink: "#FFFFFF", sub: "rgba(255,255,255,.8)" }
+];
+async function drawWrapSlides(d) {
+  const W = 1080, H = 1920;
+  try { await Promise.all([document.fonts.load("900 300px Archivo"), document.fonts.load("600 40px Archivo"), document.fonts.load("800 40px Archivo")]); } catch (_) {}
+  const c = cardColors();
+  const imgCache = new Map();
+  const imgOf = async g => { if (!g) return null; if (!imgCache.has(g.id)) imgCache.set(g.id, firstImage(gameCovers(g))); return imgCache.get(g.id); };
+  const slides = [];
+  const make = async (pal, fn) => {
+    const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, W, H);
+    // formas grandes ao fundo, para não ficar chapado
+    ctx.save(); ctx.globalAlpha = .12; ctx.fillStyle = pal.ink;
+    ctx.beginPath(); ctx.arc(W + 60, 300, 420, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-120, H - 260, 360, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    // marca e ano
+    ctx.save(); const bc = { ...c, a: pal.bg === "#FFD21F" ? "#0B0B0C" : c.a, t: pal.ink }; drawBrand(ctx, 72, 150, bc); ctx.restore();
+    ctx.fillStyle = pal.ink; setFont(ctx, 900, 44, "condensed"); ctx.textAlign = "right"; ctx.fillText(`${d.y}${d.preview ? " · prévia" : ""}`, W - 72, 150); ctx.textAlign = "left";
+    await fn(ctx, pal);
+    slides.push(cv.toDataURL("image/jpeg", 0.9));
+  };
+  const label = (ctx, pal, t, y) => { setFont(ctx, 800, 50); ctx.fillStyle = pal.sub; ctx.textAlign = "left"; wrap(ctx, t, W - 144, 2).forEach((s, i) => ctx.fillText(s, 72, y + i * 62)); };
+  const huge = (ctx, pal, t, y, size = 330) => { setFont(ctx, 900, size, "extra-condensed"); ctx.fillStyle = pal.ink; ctx.textAlign = "left"; let s = size; while (ctx.measureText(t).width > W - 144 && s > 90) { s -= 10; setFont(ctx, 900, s, "extra-condensed"); } ctx.fillText(t, 64, y); return s; };
+  const text = (ctx, pal, t, y, size = 44, weight = 600, lines = 3, color) => { setFont(ctx, weight, size); ctx.fillStyle = color || pal.sub; ctx.textAlign = "left"; const ls = wrap(ctx, t, W - 144, lines); ls.forEach((s, i) => ctx.fillText(s, 72, y + i * size * 1.3)); return y + ls.length * size * 1.3; };
+  const coverAt = async (ctx, g, x, y, w, h, rot = 0) => {
+    const img = await imgOf(g);
+    ctx.save(); ctx.translate(x + w / 2, y + h / 2); ctx.rotate(rot); ctx.translate(-w / 2, -h / 2);
+    ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 50; ctx.shadowOffsetY = 24;
+    ctx.fillStyle = "#1f1f22"; rr(ctx, 0, 0, w, h, 26); ctx.fill(); ctx.shadowColor = "transparent";
+    rr(ctx, 0, 0, w, h, 26); ctx.clip();
+    if (img) drawCover(ctx, img, 0, 0, w, h);
+    else { setFont(ctx, 900, Math.round(w / 7), "condensed"); ctx.fillStyle = "#8a877f"; wrap(ctx, g.title, w - 40, 4).forEach((s, i) => ctx.fillText(s, 20, 20 + w / 6 + i * w / 6.2)); }
+    ctx.restore();
+  };
+  const starRow = (ctx, r, x, y, size, col, empty) => {
+    for (let i = 1; i <= 5; i++) {
+      const cx = x + (i - 1) * size * 1.25 + size / 2;
+      ctx.fillStyle = empty; drawStar(ctx, cx, y, size / 2);
+      const part = r >= i ? 1 : r >= i - .5 ? .5 : 0;
+      if (part) { ctx.save(); ctx.beginPath(); ctx.rect(cx - size / 2 - 2, y - size, (size + 4) * part, size * 2); ctx.clip(); ctx.fillStyle = col; drawStar(ctx, cx, y, size / 2); ctx.restore(); }
+    }
+  };
+  const n = d.done.length;
+
+  // 1. Abertura
+  await make(WRAP_BG[4], async (ctx, pal) => {
+    const av = await avatarImage();
+    drawAvatar(ctx, av, 72, 420, 150);
+    label(ctx, pal, d.preview ? `Prévia do seu ano, ${profile.name || "jogador"}` : `Seu ano nos jogos, ${profile.name || "jogador"}`, 680);
+    setFont(ctx, 900, 400, "extra-condensed"); ctx.fillStyle = c.a; ctx.fillText(String(d.y), 56, 1080);
+    text(ctx, pal, d.preview ? `Isto é como seu ano está até agora. A retrospectiva completa libera em dezembro.` : `Bora ver tudo o que você zerou, jogou e avaliou.`, 1200, 46, 600, 4);
+    text(ctx, pal, "Toque para avançar  →", H - 180, 38, 700, 1, c.a);
+  });
+  // 2. Zerados
+  await make(WRAP_BG[0], async (ctx, pal) => {
+    label(ctx, pal, d.preview ? "Até agora você zerou" : "Você zerou", 360);
+    const s = huge(ctx, pal, String(n), 700);
+    setFont(ctx, 800, 70, "condensed"); ctx.fillStyle = pal.ink; ctx.fillText(n === 1 ? "jogo" : "jogos", 72, 800);
+    const shown = d.done.slice(-8).reverse();
+    const cols = shown.length <= 3 ? Math.max(2, shown.length) : 4, gap = 22, cw = Math.min(380, (W - 144 - gap * (cols - 1)) / cols), ch = cw * 1.4;
+    for (let i = 0; i < shown.length; i++) await coverAt(ctx, shown[i], 72 + (i % cols) * (cw + gap), 920 + Math.floor(i / cols) * (ch + gap), cw, ch, (i % 2 ? 1 : -1) * 0.025);
+    if (n > 8) text(ctx, pal, `e mais ${n - 8}`, 900 + 2 * (ch + gap) + 40, 40, 800, 1, pal.ink);
+    void s;
+  });
+  // 3. Horas
+  if (d.hours || d.sessionMin) await make(WRAP_BG[1], async (ctx, pal) => {
+    label(ctx, pal, "Nos jogos que você zerou, foram", 420);
+    huge(ctx, pal, `${fmtN(d.hours)} h`, 760);
+    let y = 860;
+    const days = d.hours / 24;
+    if (d.hours) y = text(ctx, pal, days >= 1 ? `Isso dá ${fmtH(Math.round(days * 10) / 10)} ${days < 2 ? "dia inteiro" : "dias inteiros"} sem parar.` : `Quase ${Math.max(1, Math.round(d.hours))} horas de pura gameplay.`, y, 50, 700, 3, pal.ink);
+    if (d.sessionMin) text(ctx, pal, `O cronômetro registrou mais ${fmtDur(d.sessionMin)} em ${d.sessions} ${d.sessions === 1 ? "sessão" : "sessões"}.`, y + 40, 44, 600, 3);
+    if (d.longest) {
+      text(ctx, pal, "A maior jornada", 1280, 40, 800, 1);
+      await coverAt(ctx, d.longest, 72, 1320, 230, 322);
+      setFont(ctx, 900, 64, "condensed"); ctx.fillStyle = pal.ink; wrap(ctx, d.longest.title, W - 144 - 270, 3).forEach((s, i) => ctx.fillText(s, 340, 1400 + i * 66));
+      setFont(ctx, 700, 44); ctx.fillStyle = pal.sub; ctx.fillText(`${fmtH(Number(d.longest.hours))} h`, 340, 1400 + Math.min(3, wrap(ctx, d.longest.title, W - 414, 3).length) * 66 + 10);
+    }
+  });
+  // 4. Mês
+  if (n >= 2) await make(WRAP_BG[2], async (ctx, pal) => {
+    label(ctx, pal, "Seu mês mais forte foi", 420);
+    huge(ctx, pal, MONTHS_FULL[d.topMonth], 700, 230);
+    text(ctx, pal, `${d.months[d.topMonth]} ${d.months[d.topMonth] === 1 ? "jogo zerado" : "jogos zerados"} só nele.`, 800, 50, 700, 2, pal.ink);
+    const max = Math.max(1, ...d.months), bw = (W - 144 - 11 * 16) / 12, base = 1560, hMax = 520;
+    d.months.forEach((v, i) => {
+      const x = 72 + i * (bw + 16), h = v ? Math.max(24, v / max * hMax) : 8;
+      ctx.fillStyle = i === d.topMonth ? pal.ink : "rgba(255,255,255,.35)"; rr(ctx, x, base - h, bw, h, 14); ctx.fill();
+      setFont(ctx, 800, 34); ctx.textAlign = "center"; ctx.fillStyle = pal.ink; ctx.fillText(MONTHS[i][0].toUpperCase(), x + bw / 2, base + 56);
+      if (v) { ctx.fillStyle = i === d.topMonth ? pal.ink : pal.sub; ctx.fillText(String(v), x + bw / 2, base - h - 20); }
+      ctx.textAlign = "left";
+    });
+  });
+  // 5. Gênero
+  if (d.genreList.length) await make(WRAP_BG[5], async (ctx, pal) => {
+    label(ctx, pal, "Seu gênero favorito", 420);
+    huge(ctx, pal, d.genreList[0][0], 690, 240);
+    text(ctx, pal, `${d.genreList[0][1]} dos seus zerados ${d.genreList[0][1] === 1 ? "é" : "são"} desse gênero.`, 790, 50, 700, 2, pal.ink);
+    const top = d.genreList.slice(0, 5), max = top[0][1];
+    top.forEach(([gname, v], i) => {
+      const y = 1040 + i * 130;
+      setFont(ctx, 800, 44); ctx.fillStyle = pal.ink; ctx.fillText(`${i + 1}. ${gname}`, 72, y);
+      ctx.fillStyle = "rgba(255,255,255,.22)"; rr(ctx, 72, y + 22, W - 144, 22, 11); ctx.fill();
+      ctx.fillStyle = pal.ink; rr(ctx, 72, y + 22, Math.max(22, (W - 144) * v / max), 22, 11); ctx.fill();
+    });
+  });
+  // 6. Plataforma
+  if (d.platList.length) await make(WRAP_BG[3], async (ctx, pal) => {
+    label(ctx, pal, "Você mais zerou no", 420);
+    huge(ctx, pal, platLabel(d.platList[0][0]), 690, 240);
+    text(ctx, pal, `${d.platList[0][1]} de ${n} ${n === 1 ? "jogo" : "jogos"}.`, 790, 50, 700, 2, pal.ink);
+    d.platList.slice(0, 5).forEach(([p, v], i) => {
+      const y = 1040 + i * 130;
+      setFont(ctx, 800, 44); ctx.fillStyle = pal.ink; ctx.fillText(platLabel(p), 72, y);
+      ctx.textAlign = "right"; ctx.fillText(String(v), W - 72, y); ctx.textAlign = "left";
+      ctx.fillStyle = "rgba(6,33,15,.18)"; rr(ctx, 72, y + 22, W - 144, 22, 11); ctx.fill();
+      ctx.fillStyle = pal.ink; rr(ctx, 72, y + 22, Math.max(22, (W - 144) * v / n), 22, 11); ctx.fill();
+    });
+  });
+  // 7. Favorito
+  if (d.best) await make(WRAP_BG[4], async (ctx, pal) => {
+    const img = await imgOf(d.best);
+    if (img) { drawBackdrop(ctx, img, W, H); ctx.save(); const bc = { ...c }; drawBrand(ctx, 72, 150, bc); ctx.restore(); setFont(ctx, 900, 44, "condensed"); ctx.fillStyle = pal.ink; ctx.textAlign = "right"; ctx.fillText(`${d.y}${d.preview ? " · prévia" : ""}`, W - 72, 150); ctx.textAlign = "left"; }
+    label(ctx, pal, "Seu jogo favorito do ano", 330);
+    await coverAt(ctx, d.best, (W - 560) / 2, 420, 560, 784);
+    setFont(ctx, 900, 92, "condensed"); ctx.fillStyle = pal.ink; ctx.textAlign = "center";
+    const tl = wrap(ctx, d.best.title, W - 144, 2); tl.forEach((s, i) => ctx.fillText(s, W / 2, 1340 + i * 92)); ctx.textAlign = "left";
+    starRow(ctx, clampRating(d.best.rating), W / 2 - (5 * 72 * 1.25 - 72 * .25) / 2, 1340 + tl.length * 92 + 30, 72, c.a, "rgba(246,244,238,.2)");
+    if (d.best.review) { setFont(ctx, 500, 40); ctx.fillStyle = pal.sub; ctx.textAlign = "center"; wrap(ctx, `“${d.best.review}”`, W - 200, 3).forEach((s, i) => ctx.fillText(s, W / 2, 1340 + tl.length * 92 + 150 + i * 54)); ctx.textAlign = "left"; }
+  });
+  // 8. Meta
+  if (d.goal) await make(WRAP_BG[n >= d.goal.games ? 3 : 1], async (ctx, pal) => {
+    label(ctx, pal, `Meta de ${d.y}`, 420);
+    huge(ctx, pal, `${n}/${d.goal.games}`, 760);
+    text(ctx, pal, n >= d.goal.games ? (n > d.goal.games ? `Meta batida e ainda passou ${n - d.goal.games}. Monstro!` : "Meta batida! Missão cumprida.") : d.preview ? `Faltam ${d.goal.games - n}. Ainda dá tempo!` : `Faltaram ${d.goal.games - n}. Ano que vem vai!`, 870, 56, 800, 3, pal.ink);
+    ctx.fillStyle = "rgba(255,255,255,.25)"; rr(ctx, 72, 1100, W - 144, 40, 20); ctx.fill();
+    ctx.fillStyle = pal.ink; rr(ctx, 72, 1100, Math.max(40, (W - 144) * Math.min(1, n / d.goal.games)), 40, 20); ctx.fill();
+  });
+  // 9. Resumo
+  await make(WRAP_BG[4], async (ctx, pal) => {
+    label(ctx, pal, d.preview ? `Meu ${d.y} até agora` : `Meu ${d.y} nos jogos`, 300);
+    const box = (x, y, w, h, big, small, hi) => {
+      ctx.fillStyle = hi ? c.a : "rgba(246,244,238,.08)"; rr(ctx, x, y, w, h, 30); ctx.fill();
+      let s = 110; setFont(ctx, 900, s, "condensed"); while (ctx.measureText(big).width > w - 60 && s > 50) { s -= 6; setFont(ctx, 900, s, "condensed"); }
+      ctx.fillStyle = hi ? c.on : pal.ink; ctx.fillText(big, x + 32, y + 40 + s * .85);
+      setFont(ctx, 700, 34); ctx.fillStyle = hi ? c.on : pal.sub; ctx.fillText(small, x + 32, y + h - 36);
+    };
+    const bw = (W - 144 - 24) / 2, bh = 230;
+    box(72, 360, bw, bh, String(n), n === 1 ? "jogo zerado" : "jogos zerados", true);
+    box(72 + bw + 24, 360, bw, bh, `${fmtN(d.hours)} h`, "nos zerados");
+    box(72, 360 + bh + 24, bw, bh, n >= 2 ? MONTHS_FULL[d.topMonth] : "–", "melhor mês");
+    box(72 + bw + 24, 360 + bh + 24, bw, bh, d.genreList.length ? d.genreList[0][0] : d.platList.length ? platLabel(d.platList[0][0]) : "–", d.genreList.length ? "gênero favorito" : "plataforma");
+    let y = 360 + 2 * (bh + 24) + 40;
+    if (d.best) {
+      setFont(ctx, 800, 36); ctx.fillStyle = pal.sub; ctx.fillText("Favorito do ano", 72, y + 20);
+      await coverAt(ctx, d.best, 72, y + 50, 210, 294);
+      setFont(ctx, 900, 60, "condensed"); ctx.fillStyle = pal.ink; const tl = wrap(ctx, d.best.title, W - 144 - 250, 3); tl.forEach((s, i) => ctx.fillText(s, 320, y + 130 + i * 62));
+      starRow(ctx, clampRating(d.best.rating), 320, y + 130 + tl.length * 62 + 20, 44, c.a, "rgba(246,244,238,.2)");
+      y += 380;
+    }
+    const sh = d.done.slice(-6).reverse(), cw = (W - 144 - 5 * 16) / 6;
+    for (let i = 0; i < sh.length; i++) await coverAt(ctx, sh[i], 72 + i * (cw + 16), y + 20, cw, cw * 1.4);
+    await drawFooter(ctx, W, H, c);
+  });
+  return slides;
+}
+
+let wrapEl = null, wrapState = null;
+function closeWrap() {
+  if (!wrapEl) return;
+  clearTimeout(wrapState && wrapState.timer);
+  wrapEl.remove(); wrapEl = null; wrapState = null;
+  document.body.style.overflow = sheet.hidden ? "" : "hidden";
+}
+async function openWrap(year) {
+  const y = year || new Date().getFullYear();
+  if (!doneIn(y).length) {
+    showSheet(`<div class="sheet-top"><button class="icon-btn" data-back aria-label="Fechar">${ICON.close}</button></div>
+      <h2 class="hero-title" style="margin-top:18px">Retrospectiva de ${y}</h2>
+      <p class="hero-sub">Ela aparece quando você tiver pelo menos um jogo zerado em ${y}. Marque um jogo como Zerado (com a data “Zerado em”) e volte aqui.</p>`);
+    return;
+  }
+  closeWrap();
+  wrapEl = document.createElement("div");
+  wrapEl.className = "wrap";
+  wrapEl.innerHTML = `<div class="wrap-load"><div class="wrap-spin"></div><b>Montando sua retrospectiva…</b><span id="wrap-pct">Juntando seus jogos de ${y}</span></div>`;
+  document.body.appendChild(wrapEl);
+  document.body.style.overflow = "hidden";
+  const me = wrapEl;
+  let slides;
+  try {
+    const d = await wrapData(y, f => { const el = me.querySelector("#wrap-pct"); if (el) el.textContent = `Descobrindo seus gêneros… ${Math.round(f * 100)}%`; });
+    if (me !== wrapEl) return;
+    me.querySelector("#wrap-pct").textContent = "Desenhando…";
+    slides = await drawWrapSlides(d);
+  } catch (_) { slides = null; }
+  if (me !== wrapEl) return;
+  if (!slides || !slides.length) { closeWrap(); toast("Não deu para montar a retrospectiva agora"); return; }
+  if (wrapReady(y)) { profile.wrapSeen = { ...(profile.wrapSeen || {}), [y]: Date.now() }; store.save("backlog.profile.v1", profile); }
+  wrapState = { i: 0, slides, y, timer: null, paused: false };
+  me.innerHTML = `
+    <div class="wrap-bars">${slides.map(() => `<span><i></i></span>`).join("")}</div>
+    <button class="wrap-x" aria-label="Fechar">${ICON.close}</button>
+    <div class="wrap-stage"><img alt="" id="wrap-img"></div>
+    <div class="wrap-tap wrap-prev" aria-label="Anterior"></div><div class="wrap-tap wrap-next" aria-label="Próximo"></div>
+    <div class="wrap-actions">
+      <button class="btn btn-primary" id="wrap-share">${SHARE}Compartilhar</button>
+      <button class="btn btn-ghost" id="wrap-save">Salvar</button>
+    </div>`;
+  const img = me.querySelector("#wrap-img"), bars = [...me.querySelectorAll(".wrap-bars span")];
+  const DUR = 6500;
+  const show = i => {
+    const st = wrapState; if (!st) return;
+    st.i = Math.max(0, Math.min(slides.length - 1, i));
+    img.src = slides[st.i];
+    bars.forEach((b, k) => { b.classList.toggle("is-done", k < st.i); b.classList.toggle("is-on", k === st.i); const bar = b.querySelector("i"); bar.style.animation = "none"; void bar.offsetWidth; bar.style.animation = ""; });
+    clearTimeout(st.timer);
+    if (st.i < slides.length - 1) st.timer = setTimeout(() => { if (wrapState === st && !st.paused) show(st.i + 1); }, DUR);
+  };
+  me.querySelector(".wrap-x").onclick = closeWrap;
+  me.querySelector(".wrap-prev").onclick = () => show(wrapState.i - 1);
+  me.querySelector(".wrap-next").onclick = () => { if (wrapState.i >= slides.length - 1) closeWrap(); else show(wrapState.i + 1); };
+  const pause = on => { const st = wrapState; if (!st) return; st.paused = on; me.classList.toggle("is-paused", on); if (!on) show(st.i); else clearTimeout(st.timer); };
+  let holdT;
+  me.querySelectorAll(".wrap-tap").forEach(t => {
+    t.addEventListener("pointerdown", () => { holdT = setTimeout(() => pause(true), 350); });
+    t.addEventListener("pointerup", e => { clearTimeout(holdT); if (wrapState && wrapState.paused) { e.stopImmediatePropagation(); pause(false); t.dataset.skip = "1"; setTimeout(() => delete t.dataset.skip, 50); } });
+    t.addEventListener("click", e => { if (t.dataset.skip) e.stopImmediatePropagation(); }, true);
+  });
+  me.querySelector("#wrap-share").onclick = async () => {
+    const data = slides[wrapState.i];
+    if (Native && Native.shareImage) { try { await callNative("shareImage", data, `Minha retrospectiva ${y} no Zerei`); } catch (_) { toast("Não deu para compartilhar agora"); } }
+    else toast("Toque e segure na imagem para salvar ou compartilhar");
+  };
+  me.querySelector("#wrap-save").onclick = async () => {
+    if (!(Native && Native.saveImage)) { toast("Toque e segure na imagem para salvar"); return; }
+    try { await callNative("saveImage", slides[wrapState.i], `zerei-retrospectiva-${y}-${wrapState.i + 1}`); toast("Imagem salva em Imagens > Zerei"); }
+    catch (_) { toast("Não deu para salvar agora"); }
+  };
+  show(0);
+}
+function wrapBannerHTML() {
+  const now = new Date(), m = now.getMonth(), cy = now.getFullYear();
+  const y = m === 11 ? cy : m === 0 ? cy - 1 : null;
+  if (y === null || !doneIn(y).length) return "";
+  return `<button class="wrap-banner" id="q-wrap"><span><small>${(profile.wrapSeen || {})[y] ? "Reveja" : "Novo"}</small><b>Sua retrospectiva de ${y} está pronta</b><i>${doneIn(y).length} zerados, veja seu ano nos jogos</i></span><span class="wb-year">${y}</span></button>`;
+}
+
 /* Botão voltar do Android */
 window.__onBack = () => {
+  if (wrapEl) { closeWrap(); return true; }
   if (!sheet.hidden) { sheetBack ? sheetBack() : closeSheet(); return true; }
   if (currentView !== "library") { go("library"); return true; }
   return false;
@@ -4275,6 +5291,7 @@ if (window.__PREVIEW && !games.length) {
 }
 applyTheme();
 renderLibrary();
+renderSessionBar();
 startCloud();
 setTimeout(autoUpdateCheck, 2500);
 setTimeout(checkNotifs, 4000);
