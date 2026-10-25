@@ -99,12 +99,15 @@ matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", window.
    Dados auxiliares
    ========================================================= */
 const STATUSES = [
-  { id: "playing", label: "Jogando",     color: "var(--accent-2)" },
-  { id: "backlog", label: "Quero jogar", color: "var(--faint)" },
-  { id: "done",    label: "Zerado",      color: "var(--accent)" },
-  { id: "dropped", label: "Abandonado",  color: "var(--bg-3)" }
+  { id: "playing", label: "Jogando",     color: "var(--st-playing)" },
+  { id: "backlog", label: "Quero jogar", color: "var(--st-backlog)" },
+  { id: "done",    label: "Zerado",      color: "var(--st-done)" },
+  { id: "dropped", label: "Abandonado",  color: "var(--st-dropped)" }
 ];
 const PLATFORMS = ["PC", "Xbox", "PlayStation", "Switch", "Switch 2"];
+// Cores dos status, iguais em todos os temas
+const STATUS_HEX = { done: "#2FBF71", playing: "#FFC72C", dropped: "#F0443A", backlog: "#4C8DFF" };
+const STATUS_INK = { done: "#06210F", playing: "#2A1E00", dropped: "#FFFFFF", backlog: "#FFFFFF" };
 const platLabel = p => p === "Switch" ? "Switch 1" : p;
 const statusOf = id => STATUSES.find(s => s.id === id) || STATUSES[1];
 
@@ -352,7 +355,7 @@ function go(view) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("is-active", t.dataset.view === view));
   window.scrollTo(0, 0);
   if (view === "explore") renderExplore();
-  if (view === "ach") renderTracked();
+  if (view === "ach") { renderTracked(); syncSteamAchievements(); }
   if (view === "settings") renderSettings();
   if (view === "net") renderNet();
 }
@@ -1299,18 +1302,23 @@ let achResults = [], achToken = 0;
 function renderTracked() {
   const box = $("#ach-tracked");
   if ($("#ach-input").value.trim().length >= 2) { box.innerHTML = ""; return; }
-  box.innerHTML = tracked.length ? `
+  const linked = ["steam", "xbox", "psn"].some(k => accounts[k]);
+  box.innerHTML = accountAchHTML() + (tracked.length ? `
     <div class="section-label">Acompanhando <small>${tracked.length}</small></div>
     <ul class="rows">${tracked.map((t, i) => `<li><button class="row tracked-row" data-t="${i}">
-        ${coverHTML(steamCovers(t.appid).concat(steamHeader(t.appid)), t.title)}
+        ${coverHTML(steamCovers(t.appid).concat(steamHeader(t.appid)), t.title, { steam: t.appid })}
         <div><div class="row-title">${esc(t.title)}</div>
           <div class="row-sub">${t.done} de ${t.total} conquistas</div>
           <div class="progress-track"><div style="width:${t.total ? t.done / t.total * 100 : 0}%"></div></div></div>
         <span class="row-chev">${ICON.chev}</span></button></li>`).join("")}</ul>`
-    : `<div class="empty"><p class="empty-title">Acompanhe suas conquistas</p>
-       <p class="empty-text">Busque um jogo da Steam para ver todas as conquistas, quantos jogadores têm cada uma e marcar as que você já fez.</p></div>`;
+    : linked ? "" : `<div class="empty"><p class="empty-title">Acompanhe suas conquistas</p>
+       <p class="empty-text">Busque um jogo da Steam para ver todas as conquistas, quantos jogadores têm cada uma e marcar as que você já fez.</p></div>`);
 }
 $("#ach-tracked").addEventListener("click", e => {
+  if (e.target.closest("#ach-go-accts")) { go("settings"); return; }
+  if (e.target.closest("#ach-more")) { achShowAll = true; renderTracked(); return; }
+  const ag = e.target.closest("[data-ag]");
+  if (ag) { const g = games.find(x => x.id === ag.dataset.ag); if (g) openGameAchievements(g, null, ag.dataset.src); return; }
   const b = e.target.closest("[data-t]");
   if (b) { const t = tracked[+b.dataset.t]; openAchievements(t.appid, t.title); }
 });
@@ -1823,6 +1831,7 @@ function openProfile(showEmail) {
       <input type="file" id="p-file" accept="image/*" hidden>
       <input class="name-input" id="p-name" maxlength="40" placeholder="Seu nome" value="${esc(profile.name)}">
       <input class="bio-input" id="p-bio" maxlength="80" placeholder="Uma frase sua, tipo: zerando o backlog um dia por vez" value="${esc(profile.bio)}">
+      <button class="btn btn-ghost p-share" id="p-share">${SHARE}Compartilhar perfil</button>
     </div>
 
     <div class="stats-grid">${profileStats().map(([v, l]) => `<div class="stat"><b>${esc(v)}</b><span>${l}</span></div>`).join("")}</div>
@@ -1886,6 +1895,7 @@ function openProfile(showEmail) {
             <button class="btn btn-primary" type="submit" data-mode="in">Entrar</button>
             <button class="btn btn-ghost" type="submit" data-mode="up">Criar conta</button>
           </div>
+          <button class="link-btn forgot" type="button" id="a-forgot">Esqueci minha senha</button>
         </form>` : ""}
     </div>`);
 
@@ -1896,6 +1906,7 @@ function openProfile(showEmail) {
   body.querySelector("#p-bio").addEventListener("input", e => { profile.bio = e.target.value.trim(); later(); });
 
   const refresh = () => { const y = body.scrollTop; openProfile(); body.scrollTop = y; };
+  body.querySelector("#p-share").onclick = () => { const d = myProfileShareData(); openShareCard({ kind: "profile", ...d }, () => openProfile()); };
   const fileInput = body.querySelector("#p-file");
   const pick = () => fileInput.click();
   body.querySelector("#p-avatar").addEventListener("click", pick);
@@ -1959,6 +1970,8 @@ function openProfile(showEmail) {
     catch (err) { const m = authError(err); if (m) toast(m); b.disabled = false; }
   });
   on("#a-email-toggle", () => { const f = body.querySelector("#a-email"); if (!f) return; f.hidden = !f.hidden; if (!f.hidden) body.querySelector("#a-mail").focus(); });
+  const fg = body.querySelector("#a-forgot");
+  if (fg) fg.onclick = () => openForgot(body.querySelector("#a-mail").value.trim(), () => openProfile(true));
   const form = body.querySelector("#a-email");
   if (form) form.addEventListener("submit", async e => {
     e.preventDefault();
@@ -2418,8 +2431,11 @@ async function importFrom(src, onlyPlayed) {
 }
 
 /* Abre conquistas/troféus de um jogo da biblioteca pela melhor fonte disponível */
-function openGameAchievements(game, back) {
+function openGameAchievements(game, back, prefer) {
   const s = game.sources || {};
+  if (prefer === "steam" && s.steam) return openAchievements(s.steam.id || game.steamId, game.title, back);
+  if (prefer === "xbox" && s.xbox && accounts.xbox) return openAchSheet({ title: game.title, banner: game.coverRemote, source: "Xbox", readonly: true,
+      emptyText: "Esse jogo não tem conquistas no Xbox.", load: () => xboxAchievements(s.xbox.id) }, back);
   if (s.psn && s.psn.npId && accounts.psn) {
     return openAchSheet({ title: game.title, banner: game.coverRemote, source: "PlayStation", noun: "troféus", readonly: true,
       emptyText: "Esse jogo não tem troféus.", load: () => psnTrophies(s.psn.npId, s.psn.svc) }, back);
@@ -2507,6 +2523,7 @@ function openAccount(src) {
     b.disabled = true; b.textContent = "Importando…";
     try {
       const r = await importFrom(src, mode === "played");
+      if (src === "steam") syncSteamAchievements(true);
       msg.hidden = false;
       msg.textContent = `${r.total} jogos encontrados. ${r.added} ${r.added === 1 ? "novo entrou" : "novos entraram"} na biblioteca e ${r.updated} ${r.updated === 1 ? "foi atualizado" : "foram atualizados"}.`;
       toast("Importação concluída");
@@ -3010,7 +3027,7 @@ function drawBrand(ctx, x, y, c) {
   ctx.fillStyle = "#0B0B0C"; ctx.beginPath(); ctx.arc(72.5, 53, 3.6, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
   setFont(ctx, 900, 44, "condensed"); ctx.fillStyle = "#F6F4EE"; ctx.textAlign = "left";
-  ctx.fillText("Zerei", x + 66, y);
+  ctx.fillText("Zerei", x + 80, y);
 }
 async function drawFooter(ctx, W, H, c) {
   const av = await avatarImage();
@@ -3033,7 +3050,7 @@ async function drawGameCard(g, format) {
   drawBackdrop(ctx, img, W, H);
   drawBrand(ctx, 72, 124, c);
   const st = statusOf(g.status);
-  const tags = [{ text: st.label, bg: g.status === "done" ? c.a : g.status === "playing" ? c.a2 : "rgba(246,244,238,0.14)", fg: g.status === "done" ? c.on : g.status === "playing" ? c.on2 : "#F6F4EE" }];
+  const tags = [{ text: st.label, bg: STATUS_HEX[g.status] || "rgba(246,244,238,0.14)", fg: STATUS_INK[g.status] || "#F6F4EE" }];
   if (g.hours) tags.push({ text: `${fmtH(g.hours)} h`, bg: "rgba(246,244,238,0.14)", fg: "#F6F4EE" });
   if (g.platform) tags.push({ text: platLabel(g.platform), bg: "rgba(246,244,238,0.14)", fg: "#F6F4EE" });
 
@@ -3148,7 +3165,7 @@ async function openShareCard(what, back) {
     </div>
     ${g && !g.review ? `<p class="panel-note">Dica: escreva uma análise do jogo e ela aparece no cartão.</p>` : ""}`, back);
   let data = null;
-  try { data = what.kind === "goal" ? await drawGoalCard(what.year, shareFormat) : await drawGameCard(g, shareFormat); }
+  try { data = what.kind === "goal" ? await drawGoalCard(what.year, shareFormat) : what.kind === "profile" ? await drawProfileCard(what.p, what.covers, shareFormat) : await drawGameCard(g, shareFormat); }
   catch (_) { data = null; }
   const prev = body.querySelector("#sh-prev");
   if (!prev) return;
@@ -3156,7 +3173,9 @@ async function openShareCard(what, back) {
   prev.innerHTML = `<img src="${data}" alt="Prévia do cartão">`;
   const go = body.querySelector("#sh-go"), save = body.querySelector("#sh-save");
   go.disabled = save.disabled = false;
-  const text = g ? `${g.title}${g.rating ? ` ${starsText(g.rating)}` : ""} no Zerei` : `Minha meta de ${what.year} no Zerei`;
+  const text = g ? `${g.title}${g.rating ? ` ${starsText(g.rating)}` : ""} no Zerei`
+    : what.kind === "profile" ? (what.p.handle ? `Me siga no Zerei: @${what.p.handle}` : "Minha estante no Zerei")
+    : `Minha meta de ${what.year} no Zerei`;
   go.onclick = async () => {
     if (Native && Native.shareImage) { try { await callNative("shareImage", data, text); } catch (_) { toast("Não deu para compartilhar agora"); } }
     else toast("Toque e segure na imagem para salvar ou compartilhar");
@@ -3433,8 +3452,10 @@ async function renderNet() {
         <input class="text-input" id="nl-pass" type="password" autocomplete="current-password" placeholder="Senha (mínimo 6 caracteres)">
         <p class="form-error" id="nl-err" hidden></p>
         <div class="two-btns"><button class="btn btn-primary" type="submit" data-mode="up">Criar conta</button><button class="btn btn-ghost" type="submit" data-mode="in">Já tenho conta</button></div>
+        <button class="link-btn forgot" type="button" id="nl-forgot">Esqueci minha senha</button>
       </form></div>`;
     const f = box.querySelector("#net-login");
+    box.querySelector("#nl-forgot").onclick = () => openForgot(box.querySelector("#nl-mail").value.trim());
     const gb = box.querySelector("#net-google");
     if (gb) gb.onclick = async () => {
       gb.disabled = true;
@@ -3592,9 +3613,10 @@ async function openNetProfile(uid, back) {
       <h2 class="hero-title" style="margin-top:8px">${esc(p.name || p.handle)}</h2>
       <div class="hero-sub" style="margin:0">@${esc(p.handle)}${p.favPlatform ? `, joga mais no ${esc(platLabel(p.favPlatform))}` : ""}</div>
       ${p.bio ? `<p class="np-bio">${esc(p.bio)}</p>` : ""}
-      <div class="actions" style="width:100%;margin-top:14px">
+      <div class="actions two-btns" style="width:100%;margin-top:14px">
         ${me ? `<button class="btn btn-ghost" id="np-edit">Editar perfil</button>`
           : `<button class="btn ${fol ? "btn-ghost" : "btn-primary"}" id="np-follow">${fol ? "Seguindo" : "Seguir"}</button>`}
+        <button class="btn btn-ghost" id="np-share">${SHARE}Compartilhar</button>
       </div>
     </div>
     <div class="stats-grid">
@@ -3612,6 +3634,11 @@ async function openNetProfile(uid, back) {
     </div>`;
   const reopen = () => openNetProfile(uid, back);
   wirePosts(box.querySelector("#np-list"), reopen);
+  const sh = box.querySelector("#np-share");
+  if (sh) sh.onclick = () => {
+    const covers = me ? myProfileShareData().covers : items.filter(r => r.status === "done" && safeImg(r.cover)).slice(0, 4).map(r => safeImg(r.cover));
+    openShareCard({ kind: "profile", p: { ...p, photo: safeImg(p.photo), coversLabel: me ? "Últimos zerados" : "Zerados recentes" }, covers }, reopen);
+  };
   const ed = box.querySelector("#np-edit");
   if (ed) ed.onclick = () => openProfile();
   const fb = box.querySelector("#np-follow");
@@ -3714,7 +3741,7 @@ async function refreshCurrent() {
     if (exploreSeg === "trending") await renderTrending(true);
     else { hltbToken = null; await renderHltb(true); }
   } else if (currentView === "net") { profCache.clear(); await renderNet(); }
-  else if (currentView === "ach") { renderTracked(); if ($("#ach-input").value.trim()) await runAchSearch($("#ach-input").value); }
+  else if (currentView === "ach") { renderTracked(); syncSteamAchievements(true); if ($("#ach-input").value.trim()) await runAchSearch($("#ach-input").value); }
   else if (currentView === "settings") renderSettings();
 }
 (function pullToRefresh() {
@@ -3963,6 +3990,276 @@ function openNotifs() {
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkNotifs(); });
 setInterval(() => { if (!document.hidden) checkNotifs(); }, 5 * 60 * 1000);
+
+/* =========================================================
+   Busca dentro de "Em alta agora"
+   ========================================================= */
+let trendQ = "", trendSearchToken = 0, trendResults = [];
+async function runTrendSearch(qs) {
+  const list = $("#trending-list");
+  trendQ = qs.trim();
+  if (!trendQ) { trendResults = []; return renderTrending(true); }
+  if (trend.stop) { trend.stop(); trend.stop = null; }
+  const tok = ++trendSearchToken;
+  list.innerHTML = skeletonRows(4);
+  $("#explore-trending .lede").textContent = `Resultados para “${trendQ}” na Steam, com quantas pessoas estão jogando agora.`;
+  let res;
+  try { res = await searchSteam(trendQ); } catch (_) {
+    if (tok === trendSearchToken) list.innerHTML = `<p class="status-line" style="padding:0">Sem conexão com a Steam agora. Tente de novo.</p>`;
+    return;
+  }
+  if (tok !== trendSearchToken) return;
+  await steamAssets(res.map(r => r.steamId));
+  trendResults = res.map(r => ({ src: "steam", steam: r.steamId, title: r.title, year: "", covers: [...steamCovers(r.steamId), steamHeader(r.steamId)], players: trend.players[r.steamId] || 0 }));
+  if (!trendResults.length) { list.innerHTML = `<p class="status-line" style="padding:0">Nenhum jogo encontrado para “${esc(trendQ)}”.</p>`; return; }
+  const draw = () => {
+    const sorted = [...trendResults].sort((a, b) => (b.players || 0) - (a.players || 0));
+    list.innerHTML = sorted.map((r, i) => trendRowHTML(r, i).replace(`data-ti="${i}"`, `data-tr="${trendResults.indexOf(r)}"`)).join("");
+  };
+  draw();
+  await Promise.allSettled(trendResults.map(r => getJSON(`https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=${r.steam}`)
+    .then(j => { r.players = j.response?.player_count ?? 0; trend.players[r.steam] = r.players; })));
+  if (tok === trendSearchToken) draw();
+}
+$("#trending-list").addEventListener("click", e => {
+  const b = e.target.closest("[data-tr]");
+  if (b) openCatalog(trendResults[+b.dataset.tr]);
+});
+let trendDeb;
+$("#trend-q").addEventListener("input", e => { clearTimeout(trendDeb); trendDeb = setTimeout(() => runTrendSearch(e.target.value), 450); });
+$("#trend-form").addEventListener("submit", e => { e.preventDefault(); clearTimeout(trendDeb); $("#trend-q").blur(); runTrendSearch($("#trend-q").value); });
+
+/* =========================================================
+   Esqueci minha senha (Firebase manda um e-mail com link e código)
+   ========================================================= */
+const fbHeaders = { "Content-Type": "application/json", "X-Firebase-Locale": "pt-BR" };
+async function sendPasswordReset(email) {
+  const r = await http("POST", `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${FB.apiKey}`,
+    { headers: fbHeaders, body: JSON.stringify({ requestType: "PASSWORD_RESET", email }) });
+  if (r.status >= 400 && !/EMAIL_NOT_FOUND/.test(r.body)) throw new Error(r.body || ("HTTP " + r.status));
+}
+function codeFrom(text) {
+  const t = String(text || "").trim();
+  const m = t.match(/[?&]oobCode=([^&#\s]+)/);
+  return m ? decodeURIComponent(m[1]) : t.replace(/\s+/g, "");
+}
+async function resetPassword(code, newPassword) {
+  const r = await http("POST", `https://identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=${FB.apiKey}`,
+    { headers: fbHeaders, body: JSON.stringify({ oobCode: code, newPassword }) });
+  if (r.status >= 400) throw new Error(r.body || ("HTTP " + r.status));
+  return JSON.parse(r.body || "{}");
+}
+function openForgot(email, back) {
+  const state = { email: email || "", sent: false };
+  const draw = () => {
+    showSheet(`
+      <div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button></div>
+      <h2 class="hero-title" style="margin-top:18px">Esqueci minha senha</h2>
+      ${!state.sent ? `
+        <p class="hero-sub">Digite o e-mail da sua conta. Vamos mandar um e-mail com um link de confirmação para você criar uma senha nova.</p>
+        <form class="email-form" id="fp-send">
+          <input class="text-input" id="fp-mail" type="email" autocomplete="email" placeholder="E-mail da conta" value="${esc(state.email)}">
+          <p class="form-error" id="fp-err" hidden></p>
+          <button class="btn btn-primary" type="submit">Enviar e-mail de confirmação</button>
+        </form>`
+      : `
+        <div class="panel" style="margin-top:16px">
+          <span class="field-label">E-mail enviado para ${esc(state.email)}</span>
+          <p class="panel-note" style="margin:0">Abra o e-mail (olhe também no spam) e escolha um jeito:</p>
+          <ol class="fp-steps">
+            <li>Toque no link do e-mail e crie a senha nova na página que abrir. Depois é só entrar aqui com ela.</li>
+            <li>Ou copie o link do e-mail, cole abaixo e troque a senha aqui mesmo.</li>
+          </ol>
+        </div>
+        <form class="email-form" id="fp-reset">
+          <textarea class="text-input fp-code" id="fp-code" rows="3" placeholder="Cole aqui o link ou o código do e-mail"></textarea>
+          <input class="text-input" id="fp-new" type="password" autocomplete="new-password" placeholder="Senha nova (mínimo 6 caracteres)">
+          <input class="text-input" id="fp-new2" type="password" autocomplete="new-password" placeholder="Repita a senha nova">
+          <p class="form-error" id="fp-err" hidden></p>
+          <button class="btn btn-primary" type="submit">Trocar senha</button>
+          <button class="link-btn" type="button" id="fp-again" style="justify-self:center">Enviar o e-mail de novo</button>
+        </form>`}`, back);
+    const err = m => { const el = body.querySelector("#fp-err"); el.textContent = m; el.hidden = !m; };
+    const sf = body.querySelector("#fp-send");
+    if (sf) sf.onsubmit = async e => {
+      e.preventDefault();
+      const mail = body.querySelector("#fp-mail").value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return err("Digite um e-mail válido.");
+      const btn = sf.querySelector("button"); btn.disabled = true; err("");
+      try { await sendPasswordReset(mail); state.email = mail; state.sent = true; draw(); toast("E-mail enviado"); }
+      catch (ex) { err(/TOO_MANY/.test(String(ex.message)) ? "Muitos pedidos seguidos. Espere alguns minutos." : "Não deu para enviar agora. Confira a internet e tente de novo."); btn.disabled = false; }
+    };
+    const rf = body.querySelector("#fp-reset");
+    if (rf) {
+      rf.onsubmit = async e => {
+        e.preventDefault();
+        const code = codeFrom(body.querySelector("#fp-code").value);
+        const p1 = body.querySelector("#fp-new").value, p2 = body.querySelector("#fp-new2").value;
+        if (!code) return err("Cole o link ou o código que chegou no e-mail.");
+        if (p1.length < 6) return err("A senha precisa ter pelo menos 6 caracteres.");
+        if (p1 !== p2) return err("As duas senhas estão diferentes.");
+        const btn = rf.querySelector("button[type=submit]"); btn.disabled = true; err("");
+        try {
+          const r = await resetPassword(code, p1);
+          await signInEmail("in", r.email || state.email, p1);
+          toast("Senha trocada. Você já entrou na conta.");
+          fullSync(); await checkSocialMe();
+          closeSheet();
+          if (currentView === "net") renderNet();
+          if (currentView === "settings") renderSettings();
+        } catch (ex) {
+          const m = String(ex.message);
+          err(/EXPIRED_OOB_CODE/.test(m) ? "Esse link expirou. Peça um e-mail novo."
+            : /INVALID_OOB_CODE/.test(m) ? "Esse link ou código não vale. Copie o link inteiro do e-mail mais recente."
+            : /WEAK_PASSWORD/.test(m) ? "A senha precisa ter pelo menos 6 caracteres."
+            : "Não deu para trocar a senha agora. Tente de novo.");
+          btn.disabled = false;
+        }
+      };
+      body.querySelector("#fp-again").onclick = () => { state.sent = false; draw(); };
+    }
+  };
+  draw();
+}
+
+/* =========================================================
+   Compartilhar perfil (cartão com @, números e jogos)
+   ========================================================= */
+function drawAvatarOf(ctx, img, p, x, y, d) {
+  ctx.save(); ctx.beginPath(); ctx.arc(x + d / 2, y + d / 2, d / 2, 0, Math.PI * 2); ctx.clip();
+  if (img) drawCover(ctx, img, x, y, d, d);
+  else {
+    ctx.fillStyle = /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : "#FFD21F"; ctx.fillRect(x, y, d, d);
+    const ini = (p.name || p.handle || "?").trim().split(/\s+/).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+    setFont(ctx, 900, d * 0.42, "condensed"); ctx.fillStyle = "#111"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(ini, x + d / 2, y + d / 2 + 2); ctx.textBaseline = "alphabetic";
+  }
+  ctx.restore();
+}
+async function drawProfileCard(p, coverUrls, format) {
+  const W = 1080, H = format === "post" ? 1350 : 1920;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d");
+  try { await Promise.all([document.fonts.load("900 90px Archivo"), document.fonts.load("600 40px Archivo")]); } catch (_) {}
+  const c = cardColors();
+  const [av, ...covers] = await Promise.all([firstImage([p.photo].filter(Boolean)), ...coverUrls.slice(0, 4).map(u => firstImage([u]))]);
+  drawBackdrop(ctx, covers.find(Boolean) || null, W, H);
+  drawBrand(ctx, 72, 124, c);
+  const post = format === "post";
+  const d = post ? 170 : 230, ay = post ? 190 : 230;
+  ctx.save(); ctx.beginPath(); ctx.arc(W / 2, ay + d / 2, d / 2 + 10, 0, Math.PI * 2); ctx.fillStyle = c.a; ctx.fill(); ctx.restore();
+  drawAvatarOf(ctx, av, p, W / 2 - d / 2, ay, d);
+  let y = ay + d + (post ? 92 : 110);
+  setFont(ctx, 900, post ? 84 : 100, "condensed"); ctx.fillStyle = "#F6F4EE"; ctx.textAlign = "center";
+  ctx.fillText(wrap(ctx, p.name || p.handle || "Meu perfil", W - 160, 1)[0], W / 2, y);
+  if (p.handle) { y += 58; setFont(ctx, 700, 40); ctx.fillStyle = c.a; ctx.fillText("@" + p.handle, W / 2, y); }
+  if (p.bio) {
+    setFont(ctx, 500, 36); ctx.fillStyle = "rgba(246,244,238,0.8)";
+    wrap(ctx, p.bio, W - 220, 2).forEach(l => { y += 52; ctx.fillText(l, W / 2, y); });
+  }
+  const s = p.stats || {};
+  const stats = [[s.games || 0, "jogos"], [s.done || 0, "zerados"], [`${fmtH(s.hours || 0)} h`, "jogadas"]];
+  y += post ? 60 : 80;
+  const bw = (W - 144 - 2 * 24) / 3, bh = post ? 150 : 180;
+  stats.forEach(([v, l], i) => {
+    const x = 72 + i * (bw + 24);
+    ctx.fillStyle = i === 1 ? c.a : "rgba(246,244,238,0.1)"; rr(ctx, x, y, bw, bh, 28); ctx.fill();
+    setFont(ctx, 900, post ? 70 : 84, "extra-condensed"); ctx.fillStyle = i === 1 ? c.on : "#F6F4EE"; ctx.textAlign = "center";
+    ctx.fillText(String(v), x + bw / 2, y + bh * 0.58);
+    setFont(ctx, 600, 30); ctx.fillStyle = i === 1 ? c.on : "rgba(246,244,238,0.65)";
+    ctx.fillText(l, x + bw / 2, y + bh * 0.85);
+  });
+  y += bh + (post ? 56 : 90);
+  const shown = covers.filter(Boolean);
+  if (shown.length) {
+    setFont(ctx, 700, 34); ctx.fillStyle = "rgba(246,244,238,0.7)"; ctx.textAlign = "left";
+    ctx.fillText(p.coversLabel || "Últimos zerados", 72, y);
+    y += 26;
+    const cols = 4, gap = 20, cw = (W - 144 - gap * (cols - 1)) / cols, ch = Math.min(cw * 1.4, H - y - 260);
+    shown.forEach((img, i) => {
+      const x = 72 + i * (cw + gap);
+      ctx.save(); rr(ctx, x, y, cw, ch, 18); ctx.clip(); drawCover(ctx, img, x, y, cw, ch); ctx.restore();
+    });
+  }
+  ctx.strokeStyle = "rgba(246,244,238,0.15)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(72, H - 186); ctx.lineTo(W - 72, H - 186); ctx.stroke();
+  setFont(ctx, 800, 40); ctx.fillStyle = "#F6F4EE"; ctx.textAlign = "center";
+  ctx.fillText(p.handle ? `Me siga no Zerei: @${p.handle}` : "Minha estante no Zerei", W / 2, H - 110);
+  return cv.toDataURL("image/png");
+}
+function myProfileShareData() {
+  const done = games.filter(g => g.status === "done").sort((a, b) => (b.doneAt || b.updatedAt || 0) - (a.doneAt || a.updatedAt || 0));
+  const st = publicStats();
+  return {
+    p: { name: profile.name, handle: socialMe && socialMe.handle, bio: profile.bio, color: profile.color, photo: myPublicPhoto() || (avatarMode() === "photo" ? profile.photoData : ""), stats: st },
+    covers: done.slice(0, 4).map(g => gameCovers(g)[0]).filter(Boolean)
+  };
+}
+
+/* =========================================================
+   Conquistas detectadas das contas conectadas
+   ========================================================= */
+let steamAchRunning = false;
+async function syncSteamAchievements(force) {
+  if (!accounts.steam || steamAchRunning) return;
+  if (!force && Date.now() - (accounts.steam.achSyncAt || 0) < 6 * 3600 * 1000) return;
+  steamAchRunning = true;
+  const todo = games.filter(g => g.sources && g.sources.steam && (g.sources.steam.minutes > 0) && (force || Date.now() - (g.sources.steam.achAt || 0) > 24 * 3600 * 1000))
+    .sort((a, b) => (b.sources.steam.last || 0) - (a.sources.steam.last || 0)).slice(0, 60);
+  let n = 0;
+  const status = () => { const el = $("#acct-ach-status"); if (el) el.textContent = n < todo.length ? `Lendo suas conquistas da Steam… ${n} de ${todo.length}` : ""; };
+  status();
+  for (let i = 0; i < todo.length; i += 4) {
+    await Promise.allSettled(todo.slice(i, i + 4).map(async g => {
+      const id = g.sources.steam.id || g.steamId;
+      try {
+        const { steamid } = accounts.steam;
+        const d = await getJSON(`https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?${await steamAuth()}&steamid=${steamid}&appid=${id}`);
+        const list = (d.playerstats && d.playerstats.achievements) || [];
+        g.sources.steam.ach = { done: list.filter(a => a.achieved).length, total: list.length };
+      } catch (_) { g.sources.steam.ach = g.sources.steam.ach || { done: 0, total: 0 }; }
+      g.sources.steam.achAt = Date.now();
+      n++; status();
+    }));
+    if (currentView === "ach") renderTracked();
+  }
+  accounts.steam.achSyncAt = Date.now(); saveAccounts();
+  store.save("backlog.games.v1", games); scheduleSync();
+  steamAchRunning = false;
+  if (currentView === "ach") renderTracked();
+}
+function accountAchItems() {
+  const out = [];
+  games.forEach(g => {
+    const s = g.sources || {};
+    ["psn", "xbox", "steam"].forEach(k => {
+      const a = s[k] && s[k].ach;
+      if (a && a.total > 0 && accounts[k]) out.push({ g, src: k, done: a.done, total: a.total, last: s[k].last || 0 });
+    });
+  });
+  return out.sort((a, b) => b.last - a.last);
+}
+let achShowAll = false;
+function accountAchHTML() {
+  const linked = ["steam", "xbox", "psn"].filter(k => accounts[k]);
+  if (!linked.length) return `<div class="panel ach-connect"><span class="field-label">Detectar suas conquistas</span>
+    <p class="panel-note" style="margin:0 0 12px">Conecte Steam, Xbox ou PlayStation e o app mostra aqui o seu progresso real de cada jogo.</p>
+    <button class="btn btn-ghost" id="ach-go-accts" style="width:100%">Conectar contas</button></div>`;
+  const items = accountAchItems();
+  const totalDone = items.reduce((a, x) => a + x.done, 0);
+  const shown = achShowAll ? items : items.slice(0, 20);
+  const SRC = { steam: "Steam", xbox: "Xbox", psn: "PlayStation" };
+  return `<div class="section-label">Das suas contas <small>${items.length ? `${fmtN(totalDone)} desbloqueadas` : ""}</small></div>
+    <p class="status-line" id="acct-ach-status" style="padding-top:0"></p>
+    ${items.length ? `<ul class="rows">${shown.map((x, i) => `<li><button class="row tracked-row" data-ag="${esc(x.g.id)}" data-src="${x.src}">
+      ${coverHTML(gameCovers(x.g), x.g.title, { plat: x.g.platform, steam: x.g.steamId })}
+      <div><div class="row-title">${esc(x.g.title)}</div>
+        <div class="row-sub">${x.done} de ${x.total} ${x.src === "psn" ? "troféus" : "conquistas"}, ${SRC[x.src]}</div>
+        <div class="progress-track"><div style="width:${x.done / x.total * 100}%"></div></div></div>
+      <span class="row-chev">${ICON.chev}</span></button></li>`).join("")}</ul>
+      ${items.length > shown.length ? `<button class="link-btn" id="ach-more" style="margin:12px var(--gutter)">Ver todos os ${items.length} jogos</button>` : ""}`
+    : `<p class="status-line" style="padding-top:0">Importe os jogos das suas contas em Ajustes > Contas de jogos para ver o progresso aqui.</p>`}`;
+}
 
 /* Botão voltar do Android */
 window.__onBack = () => {

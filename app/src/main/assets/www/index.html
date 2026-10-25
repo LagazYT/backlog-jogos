@@ -51,6 +51,10 @@
       <button data-seg="hltb" role="tab">Tempo pra zerar</button>
     </div>
     <div id="explore-trending">
+      <form class="searchbar" id="trend-form" autocomplete="off">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="trend-q" type="search" placeholder="Ver quantos jogam um jogo" enterkeyhint="search">
+      </form>
       <p class="lede">Jogos com modo single player que mais gente está jogando agora na Steam.</p>
       <ol class="rows" id="trending-list"></ol>
     </div>

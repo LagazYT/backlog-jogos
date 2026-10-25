@@ -767,3 +767,18 @@ textarea.review:focus { border-color: var(--accent); }
 }
 .or-line { display: flex; align-items: center; gap: 10px; margin: 16px 0 2px; color: var(--faint); font-size: 12.5px; font-weight: 600; }
 .or-line::before, .or-line::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* Cores dos status: iguais em todos os temas */
+:root { --st-done: #2FBF71; --st-playing: #FFC72C; --st-dropped: #F0443A; --st-backlog: #4C8DFF; }
+.tl-done .tl-dot { background: var(--st-done); }
+.tl-playing .tl-dot { background: var(--st-playing); }
+.tl-dropped .tl-dot { background: var(--st-dropped); }
+.tl-backlog .tl-dot { background: var(--st-backlog); }
+
+#trend-form { margin-top: 14px; }
+.forgot { justify-self: center; margin-top: 4px; }
+.fp-steps { margin: 10px 0 0; padding-left: 20px; font-size: 13.5px; color: var(--muted); display: grid; gap: 6px; }
+.fp-code { height: auto; min-height: 84px; padding-top: 12px; resize: vertical; font-size: 14px; }
+.p-share { margin-top: 12px; height: 42px; }
+.p-share svg, #np-share svg { width: 18px; height: 18px; }
+.ach-connect { margin: 16px var(--gutter) 0; }
