@@ -3837,11 +3837,12 @@ async function openNetProfile(uid, back) {
   showSheet(`<div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${back ? ICON.back : ICON.close}</button></div>
     <div id="np">${skeletonRows(4)}</div>`, back, () => openNetProfile(uid, back));
   const box = body.querySelector("#np");
-  let p, revs, likes, fol, nlists;
+  let p, revs, likes, fol, nlists, allFol;
   try {
     profCache.delete(uid);
-    [p, revs, likes, fol, nlists] = await Promise.all([getProfile(uid), dbGet("reviews", { orderBy: q("uid"), equalTo: q(uid) }), loadLikes(),
-      uid === auth.uid ? null : dbGet(`following/${auth.uid}/${uid}`), dbGet("lists", { orderBy: q("uid"), equalTo: q(uid) }).catch(() => null)]);
+    [p, revs, likes, fol, nlists, allFol] = await Promise.all([getProfile(uid), dbGet("reviews", { orderBy: q("uid"), equalTo: q(uid) }), loadLikes(),
+      uid === auth.uid ? null : dbGet(`following/${auth.uid}/${uid}`), dbGet("lists", { orderBy: q("uid"), equalTo: q(uid) }).catch(() => null),
+      dbGet("following").catch(() => null)]);
   } catch (_) { if (box) box.innerHTML = `<p class="hero-sub">Não deu para abrir esse perfil agora.</p>`; return; }
   if (!box) return;
   if (!p) { box.innerHTML = `<p class="hero-sub">Esse perfil não existe mais.</p>`; return; }
@@ -3854,6 +3855,11 @@ async function openNetProfile(uid, back) {
       <h2 class="hero-title" style="margin-top:8px">${esc(p.name || p.handle)}</h2>
       <div class="hero-sub" style="margin:0">@${esc(p.handle)}${p.favPlatform ? `, joga mais no ${esc(platLabel(p.favPlatform))}` : ""}</div>
       ${p.bio ? `<p class="np-bio">${esc(p.bio)}</p>` : ""}
+      <div class="follow-counts">
+        <button data-fl="followers"><b id="np-nfollowers">${followersOf(allFol, uid).length}</b> ${followersOf(allFol, uid).length === 1 ? "seguidor" : "seguidores"}</button>
+        <span aria-hidden="true">·</span>
+        <button data-fl="following"><b>${followingOf(allFol, uid).length}</b> seguindo</button>
+      </div>
       <div class="actions two-btns" style="width:100%;margin-top:14px">
         ${me ? `<button class="btn btn-ghost" id="np-edit">Editar perfil</button>`
           : `<button class="btn ${fol ? "btn-ghost" : "btn-primary"}" id="np-follow">${fol ? "Seguindo" : "Seguir"}</button>`}
@@ -3889,6 +3895,7 @@ async function openNetProfile(uid, back) {
   };
   const ed = box.querySelector("#np-edit");
   if (ed) ed.onclick = () => openProfile();
+  box.querySelectorAll("[data-fl]").forEach(b => b.onclick = () => openFollowList(uid, p, b.dataset.fl, reopen));
   const cmp = box.querySelector("#np-cmp");
   if (cmp) cmp.onclick = () => openCompare(uid, p, reopen);
   const npl = box.querySelector("#np-lists");
@@ -3900,10 +3907,60 @@ async function openNetProfile(uid, back) {
     try {
       if (fol) await dbDel(`following/${auth.uid}/${uid}`); else await dbPut(`following/${auth.uid}/${uid}`, Date.now());
       fol = !fol; fb.textContent = fol ? "Seguindo" : "Seguir"; fb.className = `btn ${fol ? "btn-ghost" : "btn-primary"}`;
+      const nf = box.querySelector("#np-nfollowers");
+      if (nf) { const n = Math.max(0, (parseInt(nf.textContent, 10) || 0) + (fol ? 1 : -1)); nf.textContent = n; nf.nextSibling.textContent = n === 1 ? " seguidor" : " seguidores"; }
       toast(fol ? `Agora você segue @${p.handle}` : `Você deixou de seguir @${p.handle}`);
     } catch (_) { toast("Não deu agora. Tente de novo."); }
     fb.disabled = false;
   };
+}
+
+/* --- Seguidores e seguindo --- */
+const followersOf = (all, uid) => Object.entries(all || {}).filter(([u, m]) => u !== uid && m && m[uid] && !blocked.includes(u)).map(([u, m]) => ({ uid: u, at: m[uid] }));
+const followingOf = (all, uid) => Object.entries((all || {})[uid] || {}).filter(([u]) => u !== uid && !blocked.includes(u)).map(([u, at]) => ({ uid: u, at }));
+async function openFollowList(uid, owner, kind, back) {
+  const self = () => openFollowList(uid, owner, kind, back);
+  const me = uid === auth.uid;
+  showSheet(`<div class="sheet-top"><button class="icon-btn" data-back aria-label="Voltar">${ICON.back}</button></div>
+    <h2 class="hero-title" style="margin-top:18px">${kind === "followers" ? "Seguidores" : "Seguindo"}</h2>
+    <p class="hero-sub">${me ? (kind === "followers" ? "Quem segue você" : "Quem você segue") : (kind === "followers" ? `Quem segue @${esc(owner.handle)}` : `Quem @${esc(owner.handle)} segue`)}</p>
+    <div class="segmented" id="fl-seg" style="margin:14px 0 0">
+      <button class="${kind === "followers" ? "is-on" : ""}" data-k="followers">Seguidores</button><button class="${kind === "following" ? "is-on" : ""}" data-k="following">Seguindo</button>
+    </div>
+    <div id="fl">${skeletonRows(4)}</div>`, back, self);
+  body.querySelector("#fl-seg").onclick = e => { const b = e.target.closest("[data-k]"); if (b && b.dataset.k !== kind) openFollowList(uid, owner, b.dataset.k, back); };
+  const box = body.querySelector("#fl");
+  let all;
+  try { all = await dbGet("following"); } catch (_) { if (box.isConnected) box.innerHTML = `<p class="hero-sub">Não deu para carregar agora. Confira a internet.</p>`; return; }
+  if (!box.isConnected) return;
+  const list = (kind === "followers" ? followersOf(all, uid) : followingOf(all, uid)).sort((a, b) => (b.at || 0) - (a.at || 0));
+  const mine = new Set(Object.keys((all || {})[auth.uid] || {}));
+  const followsMe = new Set(followersOf(all, auth.uid).map(x => x.uid));
+  if (!list.length) {
+    box.innerHTML = `<p class="hero-sub" style="margin-top:20px">${kind === "followers" ? (me ? "Ninguém segue você ainda. Publique avaliações e listas para a galera te achar." : "Ninguém segue esse perfil ainda.") : (me ? "Você ainda não segue ninguém. Abra a aba Pessoas na Rede para achar gente." : "Esse perfil ainda não segue ninguém.")}</p>`;
+    return;
+  }
+  const profs = await Promise.all(list.map(x => getProfile(x.uid)));
+  if (!box.isConnected) return;
+  const rows = list.map((x, i) => ({ ...x, p: profs[i] })).filter(x => x.p && x.p.handle);
+  box.innerHTML = `<ul class="rows" style="padding:0;margin-top:10px">${rows.map(x => `<li class="fl-row">
+      <button class="row person" data-user="${esc(x.uid)}">${avatarFor(x.p, 48)}
+        <div><div class="row-title">${esc(x.p.name || x.p.handle)}${x.uid === auth.uid ? ` <span class="tag">Você</span>` : ""}</div>
+        <div class="row-sub">@${esc(x.p.handle)}${x.uid !== auth.uid && followsMe.has(x.uid) ? `<span class="tag">Segue você</span>` : ""}</div></div></button>
+      ${x.uid === auth.uid ? "" : `<button class="btn btn-sm ${mine.has(x.uid) ? "btn-ghost" : "btn-primary"}" data-fol="${esc(x.uid)}">${mine.has(x.uid) ? "Seguindo" : followsMe.has(x.uid) ? "Seguir de volta" : "Seguir"}</button>`}
+    </li>`).join("")}</ul>`;
+  box.querySelectorAll("[data-user]").forEach(b => b.onclick = () => openNetProfile(b.dataset.user, self));
+  box.querySelectorAll("[data-fol]").forEach(b => b.onclick = async () => {
+    const t = b.dataset.fol, on = !mine.has(t);
+    b.disabled = true;
+    try {
+      on ? await dbPut(`following/${auth.uid}/${t}`, Date.now()) : await dbDel(`following/${auth.uid}/${t}`);
+      on ? mine.add(t) : mine.delete(t);
+      b.textContent = on ? "Seguindo" : followsMe.has(t) ? "Seguir de volta" : "Seguir";
+      b.className = `btn btn-sm ${on ? "btn-ghost" : "btn-primary"}`;
+    } catch (_) { toast("Não deu agora. Tente de novo."); }
+    b.disabled = false;
+  });
 }
 
 /* --- Avaliações de um jogo na rede --- */

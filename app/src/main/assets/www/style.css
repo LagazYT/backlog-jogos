@@ -995,3 +995,12 @@ textarea.review:focus { border-color: var(--accent); }
 .plat-menu button:active, .plat-menu button.is-on { background: var(--bg-3); }
 .plat-menu small { color: var(--faint); font-weight: 700; font-variant-numeric: tabular-nums; }
 .plat-menu svg { width: 16px; height: 16px; color: var(--accent-text); stroke-width: 2.4; }
+
+/* ---------- Seguidores e seguindo ---------- */
+.follow-counts { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; color: var(--faint); }
+.follow-counts button { font-size: 14.5px; color: var(--muted); padding: 4px 2px; }
+.follow-counts b { color: var(--text); font-weight: 800; font-variant-numeric: tabular-nums; }
+.fl-row { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
+.fl-row .row { border-bottom: 0; flex: 1; min-width: 0; grid-template-columns: 48px minmax(0, 1fr); }
+.fl-row .btn-sm { flex: none; }
+.fl-row .row-sub .tag { margin-left: 2px; }
