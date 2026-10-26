@@ -72,8 +72,112 @@ const THEMES = {
     light: { a: "#3F5FE0", a2: "#7B4FD6", at: "#3F5FE0", on: "#FFFFFF", on2: "#FFFFFF" } },
   neon:    { name: "Néon",    desc: "Ciano e magenta",
     dark:  { a: "#3EE6D6", a2: "#FF4FA3", at: "#3EE6D6", on: "#04201D", on2: "#2A0718" },
-    light: { a: "#0FB5A6", a2: "#E0287F", at: "#0B7F75", on: "#FFFFFF", on2: "#FFFFFF" } }
+    light: { a: "#0FB5A6", a2: "#E0287F", at: "#0B7F75", on: "#FFFFFF", on2: "#FFFFFF" } },
+  cover:   { name: "Cor da capa", desc: "Muda com o jogo que você está jogando", dynamic: true },
+  cafe:    { name: "Café",    desc: "Creme, marrom e laranja-queimado",
+    dark:  { a: "#E08A3C", a2: "#C9A27A", at: "#F0A35E", on: "#1E1006", on2: "#1E1006",
+             s: { bg: "#16100C", b2: "#211813", b3: "#2E221A", line: "#3B2D22", text: "#F4EADD", muted: "#BBA68F", faint: "#7F6C59" } },
+    light: { a: "#C0651F", a2: "#6F4A2E", at: "#9C4F14", on: "#FFFFFF", on2: "#FFFFFF",
+             s: { bg: "#F2E9DA", b2: "#FBF6EE", b3: "#E6D8C2", line: "#D9C8AE", text: "#2B1D12", muted: "#6E5A45", faint: "#9A8670" } } },
+  lava:    { name: "Lava",    desc: "Preto, laranja e vermelho",
+    dark:  { a: "#FF6B1A", a2: "#FF2D2D", at: "#FF8640", on: "#1A0600", on2: "#FFFFFF",
+             s: { bg: "#0A0706", b2: "#160F0D", b3: "#221613", line: "#341F1A", text: "#FBEFEA", muted: "#B79C93", faint: "#7C635B" } },
+    light: { a: "#EA580C", a2: "#D11F1F", at: "#B8430A", on: "#FFFFFF", on2: "#FFFFFF",
+             s: { bg: "#F7EEE9", b2: "#FFFAF7", b3: "#EEDDD4", line: "#E3CBBF", text: "#22100A", muted: "#734F43", faint: "#A07E72" } } },
+  sakura:  { name: "Sakura",  desc: "Rosa-claro e vinho",
+    dark:  { a: "#FF9EC4", a2: "#E5668F", at: "#FFB1D0", on: "#3A0C1F", on2: "#FFFFFF",
+             s: { bg: "#190F14", b2: "#24161D", b3: "#321F28", line: "#402A35", text: "#FCEFF4", muted: "#CBA5B4", faint: "#8F6F7C" } },
+    light: { a: "#F27BA7", a2: "#8C1F45", at: "#B0356A", on: "#3A0C1F", on2: "#FFFFFF",
+             s: { bg: "#FCEEF3", b2: "#FFFFFF", b3: "#F6DCE6", line: "#EFCAD8", text: "#3B1424", muted: "#83576B", faint: "#B08898" } } },
+  dungeon: { name: "Dungeon", desc: "Dourado envelhecido e vermelho-sangue",
+    dark:  { a: "#D6A84A", a2: "#C0352B", at: "#E2BA66", on: "#1E1405", on2: "#FFFFFF",
+             s: { bg: "#110C08", b2: "#1C1510", b3: "#281E16", line: "#3A2B1E", text: "#EFE4CA", muted: "#B4A37F", faint: "#7C6C4F" } },
+    light: { a: "#B8862B", a2: "#9E1F18", at: "#875F14", on: "#FFFFFF", on2: "#FFFFFF",
+             s: { bg: "#ECE0C3", b2: "#F7EEDA", b3: "#DFCFAA", line: "#D0BC92", text: "#2A1E10", muted: "#6B5838", faint: "#97835E" } } },
+  gameboy: { name: "Game Boy", desc: "Verde da telinha do portátil",
+    dark:  { a: "#9BBC0F", a2: "#C6DE6A", at: "#AECD32", on: "#0F380F", on2: "#0F380F",
+             s: { bg: "#0D190B", b2: "#152510", b3: "#1F3417", line: "#2B4520", text: "#D2E5A0", muted: "#93AB66", faint: "#647C45" } },
+    light: { a: "#306230", a2: "#0F380F", at: "#306230", on: "#D7E6A8", on2: "#D7E6A8",
+             s: { bg: "#C5D19F", b2: "#D6E0B6", b3: "#B4C388", line: "#9DAE70", text: "#0F380F", muted: "#305A30", faint: "#557A3E" } } }
 };
+const BASE_SURF = {
+  dark: { bg: "#0b0b0c", b2: "#151517", b3: "#1f1f22", line: "#2a2a2e", text: "#f6f4ee", muted: "#a3a097", faint: "#6d6a63" },
+  light: { bg: "#f2f1ed", b2: "#ffffff", b3: "#e6e4de", line: "#d9d6cd", text: "#121212", muted: "#5f5c55", faint: "#8f8b81" }
+};
+const SURF_VARS = { bg: "--bg", b2: "--bg-2", b3: "--bg-3", line: "--line", text: "--text", muted: "--muted", faint: "--faint" };
+const hexRGB = h => { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+const hslHex = (h, s, l) => {
+  h = ((h % 360) + 360) % 360; s = Math.max(0, Math.min(1, s)); l = Math.max(0, Math.min(1, l));
+  const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = n => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1))));
+  return "#" + [f(0), f(8), f(4)].map(v => v.toString(16).padStart(2, "0")).join("");
+};
+const lumOf = hex => { const [r, g, b] = hexRGB(hex); return (0.299 * r + 0.587 * g + 0.114 * b) / 255; };
+
+/* Tema "Cor da capa": cores tiradas da capa do jogo do momento */
+function coverPalette(c, mode) {
+  const { h, s, h2 } = c;
+  const sat = Math.max(.55, Math.min(.92, s));
+  if (mode === "light") {
+    const a = hslHex(h, sat, .44), a2 = hslHex(h2, Math.max(.5, sat - .1), .42);
+    return { a, a2, at: hslHex(h, sat, .34), on: lumOf(a) > .6 ? "#111111" : "#FFFFFF", on2: lumOf(a2) > .6 ? "#111111" : "#FFFFFF",
+      s: { bg: hslHex(h, .28, .94), b2: hslHex(h, .4, .985), b3: hslHex(h, .22, .88), line: hslHex(h, .18, .82), text: hslHex(h, .35, .09), muted: hslHex(h, .12, .37), faint: hslHex(h, .08, .56) } };
+  }
+  const a = hslHex(h, sat, .6), a2 = hslHex(h2, Math.max(.5, sat - .1), .62);
+  return { a, a2, at: hslHex(h, sat, .66), on: lumOf(a) > .55 ? "#0B0B0C" : "#FFFFFF", on2: lumOf(a2) > .55 ? "#0B0B0C" : "#FFFFFF",
+    s: { bg: hslHex(h, .24, .055), b2: hslHex(h, .2, .09), b3: hslHex(h, .17, .135), line: hslHex(h, .15, .19), text: hslHex(h, .25, .95), muted: hslHex(h, .12, .67), faint: hslHex(h, .08, .45) } };
+}
+function coverThemeGame() {
+  let g = null; try { g = sessionGame(); } catch (_) {}
+  if (g) return g;
+  const by = st => games.filter(x => x.status === st).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+  return by("playing") || by("done") || games[0] || null;
+}
+let coverThemeBusy = false;
+async function refreshCoverTheme(force) {
+  if (settings.theme !== "cover" || coverThemeBusy) return;
+  const g = coverThemeGame();
+  const key = g ? g.id + "|" + (gameCovers(g)[0] || "") : "";
+  const cur = settings.coverTheme;
+  if (!force && cur && cur.key === key) return;
+  if (!g) { settings.coverTheme = null; saveSettings(); applyTheme(); return; }
+  coverThemeBusy = true;
+  try {
+    const img = await firstImage(gameCovers(g));
+    if (!img) return;
+    const cv = document.createElement("canvas"); cv.width = cv.height = 40;
+    const x = cv.getContext("2d", { willReadFrequently: true });
+    x.drawImage(img, 0, 0, 40, 40);
+    const d = x.getImageData(0, 0, 40, 40).data;
+    const bins = Array.from({ length: 24 }, () => ({ w: 0, s: 0 }));
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i] / 255, gg = d[i + 1] / 255, b = d[i + 2] / 255;
+      const mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), l = (mx + mn) / 2, dl = mx - mn;
+      if (dl < .08 || l < .12 || l > .92) continue;
+      const sat = dl / (1 - Math.abs(2 * l - 1));
+      let hh = mx === r ? ((gg - b) / dl) % 6 : mx === gg ? (b - r) / dl + 2 : (r - gg) / dl + 4;
+      hh = (hh * 60 + 360) % 360;
+      const bin = bins[Math.floor(hh / 15)], w = sat * sat * (1 - Math.abs(l - .55));
+      bin.w += w; bin.s += sat * w; bin.h = (bin.h || 0) + hh * w;
+    }
+    const ranked = bins.map((b, i) => ({ i, ...b })).filter(b => b.w > 0).sort((a, b) => b.w - a.w);
+    let h = 45, s = .8, h2 = 5;
+    if (ranked.length) {
+      const top = ranked[0]; h = top.h / top.w; s = top.s / top.w;
+      const second = ranked.find(b => Math.min(Math.abs(b.i - top.i), 24 - Math.abs(b.i - top.i)) >= 3 && b.w > top.w * .15);
+      h2 = second ? second.h / second.w : h + 150;
+    }
+    settings.coverTheme = { key, h, s, h2, title: g.title };
+    saveSettings(); applyTheme();
+    if (themeDrawer) drawThemeGrid();
+  } catch (_) { /* capa sem leitura: mantém as cores anteriores */ }
+  finally { coverThemeBusy = false; }
+}
+function themeColors(id, mode) {
+  const t = THEMES[id] || THEMES.arcade;
+  if (t.dynamic) return settings.coverTheme ? coverPalette(settings.coverTheme, mode) : { ...THEMES.arcade[mode] };
+  return t[mode];
+}
 function resolvedMode() {
   if (settings.mode !== "system") return settings.mode;
   try { if (Native && Native.isSystemDark) return Native.isSystemDark() ? "dark" : "light"; } catch (_) {}
@@ -81,16 +185,101 @@ function resolvedMode() {
 }
 function applyTheme() {
   const mode = resolvedMode();
-  const t = (THEMES[settings.theme] || THEMES.arcade)[mode];
+  const t = themeColors(settings.theme, mode);
   const r = document.documentElement;
   r.dataset.mode = mode;
+  r.dataset.theme = settings.theme;
   r.style.setProperty("--accent", t.a);
   r.style.setProperty("--accent-2", t.a2);
   r.style.setProperty("--accent-text", t.at);
   r.style.setProperty("--on-accent", t.on);
   r.style.setProperty("--on-accent-2", t.on2);
+  Object.entries(SURF_VARS).forEach(([k, v]) => t.s && t.s[k] ? r.style.setProperty(v, t.s[k]) : r.style.removeProperty(v));
+  if (t.s) {
+    const [R, G, B] = hexRGB(t.s.bg), [R3, G3, B3] = hexRGB(t.s.b3);
+    r.style.setProperty("--glass", `rgba(${R}, ${G}, ${B}, ${mode === "light" ? .9 : .88})`);
+    r.style.setProperty("--tint", `${R3}, ${G3}, ${B3}`);
+  } else { r.style.removeProperty("--glass"); r.style.removeProperty("--tint"); }
   const bg = getComputedStyle(r).getPropertyValue("--bg").trim();
   try { Native && Native.setBars && Native.setBars(bg, mode === "light"); } catch (_) {}
+}
+
+/* Gaveta de temas */
+let themeDrawer = null;
+function themePreviewStyle(id, mode) {
+  const t = themeColors(id, mode), sf = t.s || BASE_SURF[mode];
+  return `--p-bg:${sf.bg};--p-b2:${sf.b2};--p-line:${sf.line};--p-text:${sf.text};--p-muted:${sf.muted};--p-a:${t.a};--p-a2:${t.a2};--p-on:${t.on}`;
+}
+function drawThemeGrid() {
+  if (!themeDrawer) return;
+  const mode = resolvedMode();
+  themeDrawer.querySelector("#dr-mode").innerHTML = [["dark", "Escuro"], ["light", "Claro"], ["system", "Do sistema"]]
+    .map(([v, l]) => `<button class="${settings.mode === v ? "is-on" : ""}" data-dm="${v}">${l}</button>`).join("");
+  themeDrawer.querySelector("#dr-grid").innerHTML = Object.entries(THEMES).map(([id, t]) => {
+    const on = settings.theme === id;
+    const desc = t.dynamic ? (settings.coverTheme && settings.theme === "cover" ? `Agora: ${settings.coverTheme.title}` : t.desc) : t.desc;
+    return `<button class="tcard ${on ? "is-on" : ""} ${t.dynamic ? "is-dyn" : ""}" data-th="${id}" style="${themePreviewStyle(id, mode)}" aria-pressed="${on}">
+      <span class="tprev" aria-hidden="true">
+        <span class="tp-top"><i></i><b></b></span>
+        <span class="tp-row"><span class="tp-cv"></span><span class="tp-ln"><i></i><i></i></span></span>
+        <span class="tp-row"><span class="tp-cv c2"></span><span class="tp-ln"><i></i><i></i></span></span>
+        <span class="tp-btns"><span class="tp-btn"></span><span class="tp-pill"></span></span>
+        ${t.dynamic ? `<span class="tp-badge">${ICON.star}</span>` : ""}
+      </span>
+      <span class="tmeta"><span class="tname">${t.name}${on ? `<span class="tcheck">${ICON.check}</span>` : ""}</span><span class="tdesc">${esc(desc)}</span></span>
+    </button>`;
+  }).join("");
+}
+function closeThemeDrawer() {
+  const d = themeDrawer;
+  if (!d) return;
+  themeDrawer = null;
+  d.classList.add("is-closing");
+  setTimeout(() => { d.remove(); if (sheet.hidden) document.body.style.overflow = ""; }, 220);
+  if (currentView === "settings") renderSettings();
+}
+function openThemeDrawer() {
+  if (themeDrawer) return;
+  const d = document.createElement("div");
+  d.className = "drawer";
+  d.innerHTML = `<div class="drawer-scrim" data-dclose></div>
+    <section class="drawer-body" role="dialog" aria-modal="true" aria-label="Temas">
+      <div class="drawer-grab"><span></span></div>
+      <div class="drawer-head"><div><h2>Temas</h2><p>Toque para testar. Muda na hora.</p></div><button class="btn btn-primary btn-sm" data-dclose>Pronto</button></div>
+      <div class="segmented" id="dr-mode"></div>
+      <div class="theme-grid" id="dr-grid"></div>
+    </section>`;
+  document.body.appendChild(d);
+  document.body.style.overflow = "hidden";
+  themeDrawer = d;
+  drawThemeGrid();
+  d.addEventListener("click", e => {
+    if (e.target.closest("[data-dclose]")) { closeThemeDrawer(); return; }
+    const m = e.target.closest("[data-dm]");
+    if (m) { settings.mode = m.dataset.dm; saveSettings(); applyTheme(); drawThemeGrid(); return; }
+    const c = e.target.closest("[data-th]");
+    if (c && c.dataset.th !== settings.theme) {
+      settings.theme = c.dataset.th; saveSettings(); applyTheme(); drawThemeGrid();
+      if (settings.theme === "cover") {
+        if (!games.length) toast("Adicione um jogo para o tema pegar a cor da capa");
+        refreshCoverTheme(true);
+      }
+    }
+  });
+  // Arrastar para baixo fecha
+  const bodyEl = d.querySelector(".drawer-body");
+  let y0 = null, dy = 0;
+  bodyEl.addEventListener("touchstart", e => { y0 = bodyEl.scrollTop <= 0 ? e.touches[0].clientY : null; dy = 0; }, { passive: true });
+  bodyEl.addEventListener("touchmove", e => {
+    if (y0 == null) return;
+    dy = e.touches[0].clientY - y0;
+    if (dy > 0) { bodyEl.style.transition = "none"; bodyEl.style.transform = `translateY(${dy}px)`; }
+  }, { passive: true });
+  bodyEl.addEventListener("touchend", () => {
+    if (y0 == null) return;
+    bodyEl.style.transition = ""; y0 = null;
+    if (dy > 110) closeThemeDrawer(); else bodyEl.style.transform = "";
+  });
 }
 window.__onSystemTheme = () => { if (settings.mode === "system") applyTheme(); };
 matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", window.__onSystemTheme);
@@ -446,6 +635,7 @@ function renderLibrary() {
   }
   $("#lib-grid").innerHTML = games.length ? gridHTML : "";
   renderLibExtras();
+  if (settings.theme === "cover") setTimeout(() => refreshCoverTheme(), 0);
 }
 $("#lib-filters").addEventListener("click", e => {
   const c = e.target.closest("[data-f]");
@@ -1383,14 +1573,10 @@ function renderSettings() {
           <div class="setting-name">Modo</div>
           <div class="segmented">${segBtns("mode", [["dark", "Escuro"], ["light", "Claro"], ["system", "Do sistema"]])}</div>
         </div>
-        <div class="setting">
-          <div class="setting-name">Tema</div>
-          <div class="themes">${Object.entries(THEMES).map(([id, t]) => {
-            const c = t[resolvedMode()];
-            return `<button class="theme-card ${settings.theme === id ? "is-on" : ""}" data-set="theme" data-val="${id}">
-              <div class="swatch"><span style="background:${resolvedMode() === "light" ? "#121212" : "#0B0B0C"}"></span><span style="background:${c.a}"></span><span style="background:${c.a2}"></span></div>
-              <div class="theme-name">${t.name}</div><div class="theme-desc">${t.desc}</div></button>`;
-          }).join("")}</div>
+        <div class="setting"><button class="setting-btn" id="s-theme">
+          <div><div class="setting-name">Tema</div><div class="setting-desc">${esc((THEMES[settings.theme] || THEMES.arcade).name)}${settings.theme === "cover" && settings.coverTheme ? `, cores de ${esc(settings.coverTheme.title)}` : ""}</div></div>
+          <span class="theme-dots" style="${themePreviewStyle(settings.theme, resolvedMode())}"><i></i><i></i><i></i></span>
+          <span class="row-chev">${ICON.chev}</span></button>
         </div>
       </div>
     </div>
@@ -1458,6 +1644,7 @@ function renderSettings() {
     </div>
     <p class="about">Zerei ${esc(APP.tag)}. Capas da Wikipédia e da Steam. Conquistas e jogadores agora vêm da Steam.</p>`;
   wireSocialSettings();
+  const st = $("#s-theme"); if (st) st.onclick = openThemeDrawer;
 }
 $("#settings").addEventListener("click", e => {
   const b = e.target.closest("[data-set]");
@@ -5278,6 +5465,7 @@ function wrapBannerHTML() {
 
 /* Botão voltar do Android */
 window.__onBack = () => {
+  if (themeDrawer) { closeThemeDrawer(); return true; }
   if (wrapEl) { closeWrap(); return true; }
   if (!sheet.hidden) { sheetBack ? sheetBack() : closeSheet(); return true; }
   if (currentView !== "library") { go("library"); return true; }
