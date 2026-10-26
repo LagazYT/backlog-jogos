@@ -608,8 +608,15 @@ function renderLibrary() {
   const plats = platOrder.filter(p => platCount[p]);
   if (libPlat !== "all" && !platCount[libPlat]) libPlat = "all";
   $("#lib-plats").hidden = plats.length < 2;
-  $("#lib-plats").innerHTML = [["all", "Todas", games.length], ...plats.map(p => [p, p ? platLabel(p) : "Sem plataforma", platCount[p]])]
-    .map(([v, l, c]) => `<button class="chip chip-plat ${libPlat === v ? "is-on" : ""}" data-pl="${v}">${l} <span class="count">${c}</span></button>`).join("");
+  const platOpts = [["all", "Todas as plataformas", games.length], ...plats.map(p => [p, p ? platLabel(p) : "Sem plataforma", platCount[p]])];
+  const curOpt = platOpts.find(o => o[0] === libPlat) || platOpts[0];
+  $("#lib-plats").innerHTML = `<button class="plat-pick ${libPlat !== "all" ? "is-set" : ""}" data-plopen aria-haspopup="true" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+      <span>${esc(curOpt[1])}</span><small>${curOpt[2]}</small>
+      <svg class="pp-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
+    ${libPlat !== "all" ? `<button class="plat-clear" data-pl="all" aria-label="Mostrar todas as plataformas">${ICON.close}</button>` : ""}
+    <div class="plat-menu" role="menu" hidden>${platOpts.map(([v, l, c]) =>
+      `<button role="menuitemradio" aria-checked="${libPlat === v}" class="${libPlat === v ? "is-on" : ""}" data-pl="${v}"><span>${esc(l)}</span><small>${c}</small>${libPlat === v ? ICON.check : ""}</button>`).join("")}</div>`;
 
   const inPlat = g => libPlat === "all" || (libPlat === "" ? !PLATFORMS.includes(g.platform) : g.platform === libPlat);
   const list = sortGames(games.filter(g => inPlat(g) && (libFilter === "all" ? g.status !== "playing" || !playing.length : g.status === libFilter)));
@@ -647,8 +654,18 @@ $("#lib-filters").addEventListener("click", e => {
   if (c) { libFilter = c.dataset.f; renderLibrary(); }
 });
 $("#lib-plats").addEventListener("click", e => {
+  const op = e.target.closest("[data-plopen]");
+  if (op) {
+    const m = $("#lib-plats .plat-menu"), open = m.hidden;
+    m.hidden = !open; op.setAttribute("aria-expanded", open); op.classList.toggle("is-open", open);
+    return;
+  }
   const c = e.target.closest("[data-pl]");
   if (c) { libPlat = c.dataset.pl; renderLibrary(); }
+});
+document.addEventListener("click", e => {
+  const m = document.querySelector("#lib-plats .plat-menu");
+  if (m && !m.hidden && !e.target.closest("#lib-plats")) { m.hidden = true; const op = document.querySelector("[data-plopen]"); if (op) { op.classList.remove("is-open"); op.setAttribute("aria-expanded", "false"); } }
 });
 $("#view-library").addEventListener("click", e => {
   const c = e.target.closest("[data-id]");

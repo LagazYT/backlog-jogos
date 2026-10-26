@@ -975,3 +975,23 @@ textarea.review:focus { border-color: var(--accent); }
 .theme-dots i:nth-child(1) { background: var(--p-bg); }
 .theme-dots i:nth-child(2) { background: var(--p-a); }
 .theme-dots i:nth-child(3) { background: var(--p-a2); }
+
+/* ---------- Filtro de plataforma discreto ---------- */
+.plat-filter { position: relative; display: flex; align-items: center; gap: 4px; padding: 10px var(--gutter) 0; }
+.plat-pick { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px 0 2px; border-radius: 10px; color: var(--muted); font-size: 13px; font-weight: 650; }
+.plat-pick svg { width: 16px; height: 16px; }
+.plat-pick small { color: var(--faint); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.plat-pick .pp-chev { width: 14px; height: 14px; transition: transform .15s; }
+.plat-pick.is-open .pp-chev { transform: rotate(180deg); }
+.plat-pick.is-set { color: var(--text); }
+.plat-pick.is-set svg:first-child { color: var(--accent-text); }
+.plat-clear { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); background: var(--bg-2); border: 1px solid var(--line); }
+.plat-clear svg { width: 13px; height: 13px; }
+.plat-menu {
+  position: absolute; z-index: 15; top: 44px; left: var(--gutter); min-width: 220px; padding: 6px; border-radius: 14px;
+  background: var(--bg-2); border: 1px solid var(--line); box-shadow: 0 18px 40px -14px rgba(0,0,0,.55); animation: pop .14s ease-out;
+}
+.plat-menu button { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; align-items: center; gap: 10px; width: 100%; padding: 10px 10px; border-radius: 9px; text-align: left; font-size: 14px; font-weight: 600; }
+.plat-menu button:active, .plat-menu button.is-on { background: var(--bg-3); }
+.plat-menu small { color: var(--faint); font-weight: 700; font-variant-numeric: tabular-nums; }
+.plat-menu svg { width: 16px; height: 16px; color: var(--accent-text); stroke-width: 2.4; }
