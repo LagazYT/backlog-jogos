@@ -89,25 +89,6 @@ Feito pelo canal **Lagaz**, pra quem leva a sério essa coisa de "um dia eu zero
   - O app nunca vê sua senha, e o acesso fica só no seu celular.
 - **Sua conta (opcional):** Firebase (login e banco de dados). Cada pessoa só consegue ler e escrever os próprios dados.
 
-## 🛠️ Pra quem curte código
-
-O app é um Android nativo bem levinho, com a interface em HTML, CSS e JavaScript puro, sem framework.
-
-```
-app/src/main/
-├── java/com/lagaz/backlog/MainActivity.java   ← WebView, downloads, login do Google
-└── assets/www/
-    ├── index.html, style.css, app.js          ← o app inteiro
-    ├── data.js                                ← tempos pra zerar
-    └── firebase-config.js                     ← chaves públicas do Firebase
-```
-
-**Compilar:** todo push na `main` gera o APK sozinho pelo GitHub Actions e publica em Releases. Se preferir no PC: abre no Android Studio, ou roda `./gradlew assembleRelease` (sem a senha, sai assinado com a chave de teste).
-
-**Assinatura:** a chave que assina o APK fica no repositório só criptografada (`app/release.jks.enc`). A senha mora no segredo `KEYSTORE_PASS` do GitHub Actions e nunca aparece no código.
-
-**Atualizar os prints deste README:** manda um push pra branch `screenshots` e o workflow tira tudo de novo com dados reais.
-
 ---
 
 <div align="center">
